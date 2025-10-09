@@ -1,7 +1,7 @@
 # Rune
 
 <p style="align-items: center;">
-  <img src="/assets/icon/icon.png">
+  <img src="/assets/icon/icon.png" width="100" height="100">
 </p>
 
 Bringing speed back to modern editors. Rune is simple and effective at any task you throw at it.
