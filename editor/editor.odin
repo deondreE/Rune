@@ -1,0 +1,353 @@
+package editor
+
+import "core:fmt"
+import "core:mem"
+import "core:strings"
+import "core:unicode/utf8"
+import "core:math"
+import sdl "vendor:sdl3"
+
+Editor :: struct {
+	allocator:          mem.Allocator,
+	window:             ^sdl.Window,
+	renderer:           ^sdl.Renderer,
+	text_renderer:      Text_Renderer,
+	gap_buffer:         Gap_Buffer,
+	cursor_logical_pos: int,
+	cursor_line_idx:    int,
+	cursor_col_idx:     int,
+	scroll_x:           int,
+	scroll_y:           int,
+	line_height:        i32,
+	char_width:         f32,
+}
+
+WINDOW_HEIGHT :: 800
+get_prev_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
+	pos := logical_byte_pos
+	if logical_byte_pos == 0 {
+		return 0
+	}
+
+	current_len := current_length(gb)
+	if pos > current_len {
+		pos = current_len
+	}
+
+	for i := 1; i <= 4 && pos - i >= 0; i += 1 {
+		temp_segment := get_text_segment(gb, pos - i, 1, context.allocator)
+		if len(temp_segment) > 0 && utf8.rune_start(temp_segment[0]) {
+			return pos - i
+		}
+	}
+	return max(0, logical_byte_pos - 1)
+}
+
+get_next_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
+	total_len := current_length(gb)
+	if logical_byte_pos >= total_len {
+		return total_len
+	}
+
+	temp_segment := get_text_segment(
+		gb,
+		logical_byte_pos,
+		min(4, total_len - logical_byte_pos),
+		context.allocator,
+	)
+	if len(temp_segment) == 0 {
+		return logical_byte_pos
+	}
+
+	_, size := utf8.decode_rune(transmute([]u8)temp_segment)
+	if size == 0 {
+		return logical_byte_pos + 1
+	}
+	return logical_byte_pos + size
+}
+
+update_cursor_position :: proc(editor: ^Editor) {
+	editor.cursor_line_idx, editor.cursor_col_idx = logical_pos_to_line_col(
+		&editor.gap_buffer,
+		editor.cursor_logical_pos, 
+	)
+}
+
+move_cursor_up :: proc(editor: ^Editor) {
+	if editor.cursor_line_idx > 0 {
+		new_line := editor.cursor_line_idx - 1
+		// Try to maintain column position, but clamp to line length
+		lines := get_lines(&editor.gap_buffer, editor.allocator)
+		defer {
+			for line in lines {
+				delete(line, editor.allocator)
+			}
+			delete(lines, editor.allocator)
+		}
+
+		if new_line < len(lines) {
+			new_col := min(editor.cursor_col_idx, len(lines[new_line]))
+			editor.cursor_logical_pos = line_col_to_logical_pos(
+				&editor.gap_buffer,
+				new_line,
+				new_col,
+			)
+			update_cursor_position(editor)
+			move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+		}
+	}
+}
+
+move_cursor_down :: proc(editor: ^Editor) {
+	lines := get_lines(&editor.gap_buffer, editor.allocator)
+	defer {
+		for line in lines {
+			delete(line, editor.allocator)
+		}
+		delete(lines, editor.allocator)
+	}
+
+	if editor.cursor_line_idx < len(lines) - 1 {
+		new_line := editor.cursor_line_idx + 1
+		new_col := min(editor.cursor_col_idx, len(lines[new_line]))
+		editor.cursor_logical_pos = line_col_to_logical_pos(&editor.gap_buffer, new_line, new_col)
+		update_cursor_position(editor)
+		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	}
+}
+
+move_cursor_left :: proc(editor: ^Editor) {
+	if editor.cursor_logical_pos > 0 {
+		editor.cursor_logical_pos = get_prev_utf8_char_start_byte_offset(
+			&editor.gap_buffer,
+			editor.cursor_logical_pos,
+		)
+		update_cursor_position(editor)
+		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	}
+}
+
+move_cursor_right :: proc(editor: ^Editor) {
+	total_len := current_length(&editor.gap_buffer)
+	if editor.cursor_logical_pos < total_len {
+		editor.cursor_logical_pos = get_next_utf8_char_start_byte_offset(
+			&editor.gap_buffer,
+			editor.cursor_logical_pos,
+		)
+		update_cursor_position(editor)
+		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	}
+}
+
+insert_char :: proc(editor: ^Editor, r: rune) {
+	fmt.printf("insert_char called with rune: %d (char: '%c')\n", r, r)
+
+	temp_str := utf8.runes_to_string({r}, editor.allocator)
+	defer delete(temp_str, editor.allocator)
+
+	fmt.printf("Encoded to %d bytes: %v\n", len(temp_str), transmute([]u8)temp_str)
+
+	insert_bytes(&editor.gap_buffer, transmute([]u8)temp_str, editor.allocator)
+	editor.cursor_logical_pos += len(temp_str)
+
+	update_cursor_position(editor)
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+}
+
+init_editor :: proc(
+	window: ^sdl.Window,
+	renderer: ^sdl.Renderer,
+	allocator: mem.Allocator = context.allocator,
+) -> Editor {
+	editor: Editor
+	editor.allocator = allocator
+	editor.window = window
+	editor.renderer = renderer
+
+	text_renderer, ok := init_text_renderer("assets/fonts/MapleMono-Regular.ttf", 16, allocator)
+	if !ok {
+		fmt.println("Failed to initialize text renderer")
+	}
+	editor.text_renderer = text_renderer
+	editor.gap_buffer = init_gap_buffer(allocator)
+	editor.cursor_logical_pos = 0
+	editor.cursor_line_idx = 0
+	editor.cursor_col_idx = 0
+	editor.line_height = text_renderer.line_height
+	editor.char_width = text_renderer.char_width
+
+	initial_text := `Hello, Deondre!
+This is your Odin code editor.
+Let's make some magic happen!`
+
+
+	insert_bytes(&editor.gap_buffer, transmute([]u8)initial_text, editor.allocator)
+
+	editor.cursor_logical_pos = current_length(&editor.gap_buffer)
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	editor.cursor_line_idx = strings.count(initial_text, "\n")
+	last_newline_idx := strings.last_index_byte(initial_text, '\n')
+	if last_newline_idx != -1 {
+		editor.cursor_col_idx = len(initial_text)
+	} else {
+		editor.cursor_col_idx = len(initial_text)
+	}
+
+	fmt.println("Editor initialized.")
+	return editor
+}
+
+destroy_editor :: proc(editor: ^Editor) {
+	destroy_gap_buffer(&editor.gap_buffer, editor.allocator)
+	destroy_text_renderer(&editor.text_renderer)
+	fmt.println("Editor destroyed.")
+}
+
+update :: proc(editor: ^Editor, dt: f64) {
+}
+
+render :: proc(editor: ^Editor) {
+	_ = sdl.SetRenderDrawColor(editor.renderer, 0x1E, 0x1E, 0x1E, 0xFF)
+	_ = sdl.RenderClear(editor.renderer)
+
+	lines := get_lines(&editor.gap_buffer, editor.allocator)
+	defer {
+		for line in lines {
+			delete(line, editor.allocator)
+		}
+		delete(lines, editor.allocator)
+	}
+
+	gutter_width := f32(60) // Fixed width in pixels
+
+	start_line := max(0, editor.scroll_y / int(editor.line_height))
+	end_line := min(len(lines), start_line + 50)
+
+	for i := start_line; i < end_line; i += 1 {
+		if i < len(lines) {
+			y := f32(i * int(editor.line_height) - editor.scroll_y)
+			
+			line_num := i + 1
+			line_num_str: string
+			if line_num < 10 {
+				line_num_str = fmt.aprintf("   %d ", line_num)
+			} else if line_num < 100 {
+				line_num_str = fmt.aprintf("  %d ", line_num)
+			} else if line_num < 1000 {
+				line_num_str = fmt.aprintf(" %d ", line_num)
+			} else {
+				line_num_str = fmt.aprintf("%d ", line_num)
+			}
+			defer delete(line_num_str, editor.allocator)
+			
+			render_text(
+				&editor.text_renderer,
+				editor.renderer,
+				line_num_str,
+				0,
+				y,
+				editor.allocator,
+			)
+			
+			render_text(
+				&editor.text_renderer,
+				editor.renderer,
+				lines[i],
+				gutter_width,
+				y,
+				editor.allocator,
+			)
+		}
+	}
+
+	cursor_x := int(gutter_width) - editor.scroll_x
+  cursor_y := editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y
+	if editor.cursor_line_idx < len(lines) && len(lines) > 0 {
+    current_line := lines[editor.cursor_line_idx]
+    cursor_pos_in_line := min(editor.cursor_col_idx, len(current_line))
+    
+    if cursor_pos_in_line > 0 {
+        text_before_cursor := current_line[:cursor_pos_in_line]
+        text_width := measure_text_width(&editor.text_renderer, text_before_cursor)
+        cursor_x += int(text_width)  // Just add the measured width
+    }
+  }
+
+	cursor_rect := sdl.FRect {
+		x = f32(cursor_x),
+		y = f32(cursor_y),
+		w = 2.0,
+		h = f32(editor.line_height),
+	}
+
+	blink_interval_ms :: 500
+	current_time_ms := sdl.GetTicks()
+	if (current_time_ms / u64(blink_interval_ms)) % 2 == 0 {
+		_ = sdl.SetRenderDrawColor(editor.renderer, 0xFF, 0xFF, 0xFF, 0xFF)
+		_ = sdl.RenderFillRect(editor.renderer, &cursor_rect)
+	}
+
+	sdl.RenderPresent(editor.renderer)
+}
+
+handle_backspace :: proc(editor: ^Editor) {
+	if editor.cursor_logical_pos > 0 {
+		prev_pos := get_prev_utf8_char_start_byte_offset(
+			&editor.gap_buffer,
+			editor.cursor_logical_pos,
+		)
+		bytes_to_delete := editor.cursor_logical_pos - prev_pos
+
+		delete_bytes_left(&editor.gap_buffer, bytes_to_delete)
+		editor.cursor_logical_pos = prev_pos
+		update_cursor_position(editor)
+		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	}
+}
+
+handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
+	#partial switch event.type {
+	case sdl.EventType.KEY_DOWN:
+		switch event.key.key {
+		case 27:
+		case 13:
+			// enter
+			insert_char(editor, '\n')
+		case 8:
+			// backspace
+			handle_backspace(editor)
+		case 46:
+			// TODO: Implement delete_bytes_right, also consider UTF-8
+			fmt.println("Delete key pressed (not yet fully implemented).")
+		case 37:
+			move_cursor_left(editor)
+		case 39:
+			move_cursor_right(editor)
+		case 38:
+			move_cursor_up(editor)
+		case 40:
+			move_cursor_down(editor)
+		}
+	case sdl.EventType.TEXT_INPUT:
+		// This event is for actual character input
+		text_cstr := event.text.text
+		text_len := len(string(text_cstr))
+		text_input_bytes := ([^]u8)(text_cstr)[:text_len]
+		insert_bytes(&editor.gap_buffer, text_input_bytes, editor.allocator)
+		inserted_bytes_len := len(text_input_bytes)
+		editor.cursor_logical_pos += inserted_bytes_len
+
+		for r_idx := 0; r_idx < len(text_input_bytes); {
+			size := text_len
+			editor.cursor_col_idx += 1
+			r_idx += size
+		}
+		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+
+		fmt.printf(
+			"Text input: '%s', Current Logical Pos: %d\n",
+			string(event.text.text)[:],
+			editor.cursor_logical_pos,
+		)
+	}
+}
