@@ -1,10 +1,10 @@
 package editor
 
 import "core:fmt"
+import "core:math"
 import "core:mem"
 import "core:strings"
 import "core:unicode/utf8"
-import "core:math"
 import sdl "vendor:sdl3"
 
 Editor :: struct {
@@ -20,9 +20,9 @@ Editor :: struct {
 	scroll_y:           int,
 	line_height:        i32,
 	char_width:         f32,
+	file_explorer:      File_Explorer,
 }
 
-WINDOW_HEIGHT :: 800
 get_prev_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
 	pos := logical_byte_pos
 	if logical_byte_pos == 0 {
@@ -69,7 +69,7 @@ get_next_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: 
 update_cursor_position :: proc(editor: ^Editor) {
 	editor.cursor_line_idx, editor.cursor_col_idx = logical_pos_to_line_col(
 		&editor.gap_buffer,
-		editor.cursor_logical_pos, 
+		editor.cursor_logical_pos,
 	)
 }
 
@@ -193,6 +193,9 @@ Let's make some magic happen!`
 		editor.cursor_col_idx = len(initial_text)
 	}
 
+
+	editor.file_explorer = init_file_explorer(".", &editor.text_renderer, 0, 0, 250, allocator)
+
 	fmt.println("Editor initialized.")
 	return editor
 }
@@ -210,6 +213,29 @@ render :: proc(editor: ^Editor) {
 	_ = sdl.SetRenderDrawColor(editor.renderer, 0x1E, 0x1E, 0x1E, 0xFF)
 	_ = sdl.RenderClear(editor.renderer)
 
+	window_w: i32
+	window_h: i32
+	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
+
+	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
+	editor_area_x := file_explorer_width
+	editor_area_width := f32(window_w) - file_explorer_width
+
+	if editor.file_explorer.is_visible {
+		render_file_explorer(&editor.file_explorer, editor.renderer)
+
+		// Draw seperator
+		_ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
+		seperator_rect := sdl.FRect{
+			x = file_explorer_width - 1,
+			y = 0,
+			w = 1,
+			h = f32(window_h), 
+		}
+		_ = sdl.RenderFillRect(editor.renderer, &seperator_rect)
+	}
+
+
 	lines := get_lines(&editor.gap_buffer, editor.allocator)
 	defer {
 		for line in lines {
@@ -219,14 +245,21 @@ render :: proc(editor: ^Editor) {
 	}
 
 	gutter_width := f32(60) // Fixed width in pixels
+	text_area_x := editor_area_x + gutter_width
 
 	start_line := max(0, editor.scroll_y / int(editor.line_height))
+	visible_lines := int(f32(window_h) / f32(editor.line_height)) + 2
 	end_line := min(len(lines), start_line + 50)
 
+	// Lines, numbers, and text content
 	for i := start_line; i < end_line; i += 1 {
 		if i < len(lines) {
 			y := f32(i * int(editor.line_height) - editor.scroll_y)
-			
+
+			if y < -f32( editor.line_height) || y > f32(window_h) {
+				continue
+			}
+
 			line_num := i + 1
 			line_num_str: string
 			if line_num < 10 {
@@ -239,21 +272,31 @@ render :: proc(editor: ^Editor) {
 				line_num_str = fmt.aprintf("%d ", line_num)
 			}
 			defer delete(line_num_str, editor.allocator)
-			
+
+			original_color := editor.text_renderer.color
+			if i == editor.cursor_line_idx {
+				editor.text_renderer.color = sdl.Color{0xFF, 0xFF, 0xFF, 0xFF}
+			} else {
+				editor.text_renderer.color = sdl.Color{0x60, 0x60, 0x60, 0xFF}
+			}
+
 			render_text(
 				&editor.text_renderer,
 				editor.renderer,
 				line_num_str,
-				0,
+				editor_area_x + 5,
 				y,
 				editor.allocator,
 			)
-			
+
+			editor.text_renderer.color = original_color
+
+			line_x := text_area_x - f32(editor.scroll_x)
 			render_text(
 				&editor.text_renderer,
 				editor.renderer,
 				lines[i],
-				gutter_width,
+				line_x,
 				y,
 				editor.allocator,
 			)
@@ -261,17 +304,17 @@ render :: proc(editor: ^Editor) {
 	}
 
 	cursor_x := int(gutter_width) - editor.scroll_x
-  cursor_y := editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y
+	cursor_y := editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y
 	if editor.cursor_line_idx < len(lines) && len(lines) > 0 {
-    current_line := lines[editor.cursor_line_idx]
-    cursor_pos_in_line := min(editor.cursor_col_idx, len(current_line))
-    
-    if cursor_pos_in_line > 0 {
-        text_before_cursor := current_line[:cursor_pos_in_line]
-        text_width := measure_text_width(&editor.text_renderer, text_before_cursor)
-        cursor_x += int(text_width)  // Just add the measured width
-    }
-  }
+		current_line := lines[editor.cursor_line_idx]
+		cursor_pos_in_line := min(editor.cursor_col_idx, len(current_line))
+
+		if cursor_pos_in_line > 0 {
+			text_before_cursor := current_line[:cursor_pos_in_line]
+			text_width := measure_text_width(&editor.text_renderer, text_before_cursor)
+			cursor_x += int(text_width) // Just add the measured width
+		}
+	}
 
 	cursor_rect := sdl.FRect {
 		x = f32(cursor_x),
@@ -306,6 +349,12 @@ handle_backspace :: proc(editor: ^Editor) {
 }
 
 handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
+	selected_file := handle_file_explorer_event(&editor.file_explorer, event)
+	if len(selected_file) > 0 {
+		// load_file_into_editor(editor, selected_file)
+		return
+	}
+
 	#partial switch event.type {
 	case sdl.EventType.KEY_DOWN:
 		switch event.key.key {
@@ -327,6 +376,9 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			move_cursor_up(editor)
 		case 40:
 			move_cursor_down(editor)
+		case 113:
+			toggle_file_explorer(&editor.file_explorer)
+			return
 		}
 	case sdl.EventType.TEXT_INPUT:
 		// This event is for actual character input
