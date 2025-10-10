@@ -195,6 +195,9 @@ move_cursor_right :: proc(editor: ^Editor) {
 
 insert_char :: proc(editor: ^Editor, r: rune) {
 	fmt.printf("insert_char called with rune: %d (char: '%c')\n", r, r)
+	if editor.has_selection {
+		delete_selection(editor)
+	}
 
 	temp_str := utf8.runes_to_string({r}, editor.allocator)
 	defer delete(temp_str, editor.allocator)
@@ -434,6 +437,10 @@ render :: proc(editor: ^Editor) {
 }
 
 handle_backspace :: proc(editor: ^Editor) {
+	if editor.has_selection {
+		delete_selection(editor)
+	}
+	
 	if editor.cursor_logical_pos > 0 {
 		prev_pos := get_prev_utf8_char_start_byte_offset(
 			&editor.gap_buffer,
@@ -456,6 +463,18 @@ delete_char_from_string :: proc(s: string, index: int, allocator: mem.Allocator)
 	new_str := fmt.aprintf("%s%s", s[:index], s[index + 1:])
 
 	return new_str
+}
+
+delete_selection :: proc(editor: ^Editor) {
+	if !editor.has_selection {
+		return
+	}
+
+	start_sel, end_sel := selection_range(editor)
+	delete_bytes_range(&editor.gap_buffer, start_sel, end_sel - start_sel)
+	editor.cursor_logical_pos = start_sel
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	clear_selection(editor)
 }
 
 handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
@@ -481,7 +500,7 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 				}
 			}
 		}
-		
+
 		switch event.key.key {
 		case 27:
 		case 13:

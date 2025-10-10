@@ -165,6 +165,51 @@ update_line_starts_after_insert :: proc(gb: ^Gap_Buffer, insert_pos: int, insert
 	}
 }
 
+// Deletes a range of bytes between [start, end]  from logical text.
+delete_bytes_range :: proc (
+	gb: ^Gap_Buffer,
+	start: int,
+	count: int,
+) {
+	if count <= 0 || start < 0 {
+		return
+	}
+
+	total_len := current_length(gb)
+	if start >= total_len {
+		return
+	}
+
+	end := start + count
+	if end > total_len {
+		end = total_len
+	}
+	actual_count := end - start
+	if actual_count <= 0 {
+		return
+	}
+
+	move_gap(gb, start)
+
+	bytes_after_gap := gb.capacity - gb.gap_end
+	to_delete := actual_count
+	if to_delete > bytes_after_gap {
+		to_delete = bytes_after_gap
+	}
+
+	gb.gap_end += to_delete
+
+	new_lines := make([dynamic]int, gb.allocator)
+	for line_start in gb.line_starts {
+		if line_start >= start && line_start < end {
+			continue
+		}
+		append(&new_lines, line_start)
+	}
+	delete(gb.line_starts)
+	gb.line_starts = new_lines
+}
+
 delete_bytes_left :: proc(gb: ^Gap_Buffer, count: int) {
 	if count <= 0 || gb.gap_start == 0 {
 		return
