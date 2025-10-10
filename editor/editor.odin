@@ -7,11 +7,6 @@ import "core:strings"
 import "core:unicode/utf8"
 import sdl "vendor:sdl3"
 
-Search_Bar :: struct {
-	is_visible: bool,
-	buffer:     string,
-	caret_pos:  int,
-}
 
 Editor :: struct {
 	allocator:          mem.Allocator,
@@ -31,20 +26,25 @@ Editor :: struct {
 }
 
 get_prev_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
-	pos := logical_byte_pos
-	if logical_byte_pos == 0 {
+	if logical_byte_pos <= 0 {
 		return 0
 	}
 
+	pos := logical_byte_pos
 	current_len := current_length(gb)
 	if pos > current_len {
 		pos = current_len
 	}
 
-	for i := 1; i <= 4 && pos - i >= 0; i += 1 {
-		temp_segment := get_text_segment(gb, pos - i, 1, context.allocator)
+	for i := 1; i <= 4; i += 1 {
+		target := pos - i
+		if target < 0 {
+			break
+		}
+
+		temp_segment := get_text_segment(gb, target, 1, context.allocator)
 		if len(temp_segment) > 0 && utf8.rune_start(temp_segment[0]) {
-			return pos - i
+			return target
 		}
 	}
 	return max(0, logical_byte_pos - 1)
@@ -182,9 +182,7 @@ init_editor :: proc(
 	editor.cursor_col_idx = 0
 	editor.line_height = text_renderer.line_height
 	editor.char_width = text_renderer.char_width
-	editor.search_bar.is_visible = false
-	editor.search_bar.buffer = ""
-	editor.search_bar.caret_pos = 0
+	editor.search_bar = init_search_bar(allocator)
 
 	initial_text := `Hello, Deondre!
 This is your Odin code editor.
@@ -211,6 +209,7 @@ Let's make some magic happen!`
 }
 
 destroy_editor :: proc(editor: ^Editor) {
+	destroy_search_bar(&editor.search_bar, editor.allocator)
 	destroy_gap_buffer(&editor.gap_buffer, editor.allocator)
 	destroy_text_renderer(&editor.text_renderer)
 	fmt.println("Editor destroyed.")
@@ -231,6 +230,8 @@ render :: proc(editor: ^Editor) {
 	editor_area_x := file_explorer_width
 	editor_area_width := f32(window_w) - file_explorer_width
 
+	render_search_bar(&editor.search_bar, &editor.text_renderer, editor.renderer, window_w, window_h)
+
 	if editor.file_explorer.is_visible {
 		render_file_explorer(&editor.file_explorer, editor.renderer)
 
@@ -243,50 +244,6 @@ render :: proc(editor: ^Editor) {
 			h = f32(window_h),
 		}
 		_ = sdl.RenderFillRect(editor.renderer, &seperator_rect)
-	}
-
-
-	if editor.search_bar.is_visible {
-		bar_h := f32(editor.line_height) * 1.5
-		bar_y: f32 = 10.0
-		bar_x := f32(300)
-		bar_w := f32(window_w) - 2 * bar_x
-
-		// bg
-		_ = sdl.SetRenderDrawColor(editor.renderer, 0x30, 0x30, 0x30, 0xF0)
-		bar_rect := sdl.FRect{bar_x, bar_y, bar_w, bar_h}
-		_ = sdl.RenderFillRect(editor.renderer, &bar_rect)
-
-		// outline
-		_ = sdl.SetRenderDrawColor(editor.renderer, 0x80, 0x80, 0x80, 0xFF)
-		_ = sdl.RenderRect(editor.renderer, &bar_rect)
-
-		render_text(
-			&editor.text_renderer,
-			editor.renderer,
-			editor.search_bar.buffer,
-			bar_x + 10.0,
-			bar_y + (bar_h - f32(editor.line_height)) / 2.0,
-			editor.allocator,
-		)
-
-		// Caret
-		caret_x :=
-			bar_x +
-			10.0 +
-			measure_text_width(
-				&editor.text_renderer,
-				editor.search_bar.buffer[:editor.search_bar.caret_pos],
-			)
-		caret_y := bar_y + 4.0
-		caret_rect := sdl.FRect{caret_x, caret_y, 2.0, f32(editor.line_height)}
-
-		blink_interval_ms :: 500
-		current_time_ms := sdl.GetTicks()
-		if (current_time_ms / u64(blink_interval_ms)) % 2 == 0 {
-			_ = sdl.SetRenderDrawColor(editor.renderer, 0xFF, 0xFF, 0xFF, 0xFF)
-			_ = sdl.RenderFillRect(editor.renderer, &caret_rect)
-		}
 	}
 
 	lines := get_lines(&editor.gap_buffer, editor.allocator)
@@ -418,41 +375,13 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		return
 	}
 
-	if editor.search_bar.is_visible {
-		#partial switch event.type {
-		case sdl.EventType.KEY_DOWN:
-			switch event.key.key {
-			case 27:
-				editor.search_bar.is_visible = false
-			case 13:
-				fmt.println("Search Confirmed: %s\n", editor.search_bar.buffer)
-				editor.search_bar.is_visible = false
-			case 8:
-				if editor.search_bar.caret_pos > 0 {
-					editor.search_bar.caret_pos -= 1
-					editor.search_bar.buffer = delete_char_from_string(
-						editor.search_bar.buffer,
-						editor.search_bar.caret_pos - 1,
-						editor.allocator,
-					)
-				}
-			}
-		case sdl.EventType.TEXT_INPUT:
-			cstr := event.text.text
-			input_txt := string(cstr)[:]
-			editor.search_bar.buffer = fmt.aprintf("%s%s", editor.search_bar.buffer, input_txt)
-			editor.search_bar.caret_pos += len(input_txt)
-		}
-		return
-	}
-
+	handle_search_bar_event(&editor.search_bar, editor, event)
 	#partial switch event.type {
 	case sdl.EventType.KEY_DOWN:
 		if event.key.mod == sdl.KMOD_LCTRL {
 			if event.key.key == 'p' {
 				editor.search_bar.is_visible = !editor.search_bar.is_visible
 				if editor.search_bar.is_visible {
-					editor.search_bar.buffer = ""
 					editor.search_bar.caret_pos = 0
 				}
 			}

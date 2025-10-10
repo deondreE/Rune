@@ -109,7 +109,6 @@ render_text :: proc(
 	text_cstr := strings.clone_to_cstring(text, allocator)
 	defer delete(text_cstr, allocator)
 
-	fmt.println(tr.font)
 	surface := ttf.RenderText_Blended(tr.font, text_cstr, len(text_cstr), tr.color)
 	if surface == nil {
 		fmt.printf("Failed to create text surface:\n")
@@ -180,19 +179,19 @@ render_text_lines :: proc(
 }
 
 measure_text_width :: proc(tr: ^Text_Renderer, text: string) -> f32 {
-    if tr.font == nil || len(text) == 0 {
-        return 0
-    }
-    
-    text_cstr := strings.clone_to_cstring(text, context.allocator)
-    defer delete(text_cstr, context.allocator)
-    
-    w, h: i32
-    if ttf.GetStringSize(tr.font, text_cstr, len(text_cstr), &w, &h) {
-        return f32(w)
-    }
-    
-    return 0
+	if tr.font == nil || len(text) == 0 {
+		return 0
+	}
+
+	text_cstr := strings.clone_to_cstring(text, context.allocator)
+	defer delete(text_cstr, context.allocator)
+
+	w, h: i32
+	if ttf.GetStringSize(tr.font, text_cstr, len(text_cstr), &w, &h) {
+		return f32(w)
+	}
+
+	return 0
 }
 
 // measure_text :: proc(
