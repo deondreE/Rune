@@ -109,6 +109,7 @@ render_text :: proc(
 	text_cstr := strings.clone_to_cstring(text, allocator)
 	defer delete(text_cstr, allocator)
 
+	fmt.println(tr.font)
 	surface := ttf.RenderText_Blended(tr.font, text_cstr, len(text_cstr), tr.color)
 	if surface == nil {
 		fmt.printf("Failed to create text surface:\n")
