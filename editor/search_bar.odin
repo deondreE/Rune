@@ -91,7 +91,7 @@ render_search_bar :: proc(
 	}
 
 	bar_h := f32(text_renderer.line_height) * 1.5
-	bar_y: f32 = 10.0
+	bar_y: f32 = 10.0 + 30.0
 	bar_x := f32(300)
 	bar_w := f32(window_w) - 2 * bar_x
 

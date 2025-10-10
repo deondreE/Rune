@@ -311,7 +311,7 @@ render :: proc(editor: ^Editor) {
 	window_h: i32
 	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
 
-	menu_offset_y := f32(editor.menu_bar.height)
+	menu_offset_y := f32(editor.menu_bar.height) + 10
 	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
 	text_origin_x := f32(file_explorer_width)
 	editor_area_x := file_explorer_width
@@ -357,7 +357,7 @@ render :: proc(editor: ^Editor) {
 		sel_line_end, sel_col_end := logical_pos_to_line_col(&editor.gap_buffer, end_sel)
 
 		for i := sel_line_start; i <= sel_line_end && i < len(lines); i += 1 {
-			y := f32(i * int(editor.line_height) - editor.scroll_y)
+			y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
 			line_x := f32(60) - f32(editor.scroll_x)
 			line_text := lines[i]
 
