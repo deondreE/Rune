@@ -12,7 +12,7 @@ import sdl_image "vendor:sdl3/image"
 
 WINDOW_WIDTH :: 1200
 WINDOW_HEIGHT :: 800
-WINDOW_TITLE :: "Odin Code Editor"
+WINDOW_TITLE :: "Rune Editor"
 WINDOW_ICON_PATH :: "assets/icon/icon.png"
 
 main :: proc() {
