@@ -9,25 +9,26 @@ import sdl "vendor:sdl3"
 
 
 Editor :: struct {
-	allocator:          mem.Allocator,
-	window:             ^sdl.Window,
-	renderer:           ^sdl.Renderer,
-	text_renderer:      Text_Renderer,
-	gap_buffer:         Gap_Buffer,
-	cursor_logical_pos: int,
-	cursor_line_idx:    int,
-	cursor_col_idx:     int,
-	scroll_x:           int,
-	scroll_y:           int,
-	line_height:        i32,
-	char_width:         f32,
-	file_explorer:      File_Explorer,
-	search_bar:         Search_Bar,
-	context_menu: 			Context_Menu,
-	menu_bar: 					Menu_Bar,
-	selection_start: int,
-	selection_end: int,
-	has_selection: bool, _is_mouse_selecting: bool,
+	allocator:           mem.Allocator,
+	window:              ^sdl.Window,
+	renderer:            ^sdl.Renderer,
+	text_renderer:       Text_Renderer,
+	gap_buffer:          Gap_Buffer,
+	cursor_logical_pos:  int,
+	cursor_line_idx:     int,
+	cursor_col_idx:      int,
+	scroll_x:            int,
+	scroll_y:            int,
+	line_height:         i32,
+	char_width:          f32,
+	file_explorer:       File_Explorer,
+	search_bar:          Search_Bar,
+	context_menu:        Context_Menu,
+	menu_bar:            Menu_Bar,
+	selection_start:     int,
+	selection_end:       int,
+	has_selection:       bool,
+	_is_mouse_selecting: bool,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -48,10 +49,10 @@ selection_range :: proc(editor: ^Editor) -> (int, int) {
 
 copy_selection_to_clipboard :: proc(editor: ^Editor) {
 	if !editor.has_selection {
-		return 
+		return
 	}
 	start, end := selection_range(editor)
-	text := get_text_segment(&editor.gap_buffer, start, end - start,editor.allocator)
+	text := get_text_segment(&editor.gap_buffer, start, end - start, editor.allocator)
 	text_cstr := strings.clone_to_cstring(text, editor.allocator)
 	defer delete(text, editor.allocator)
 	_ = sdl.SetClipboardText(text_cstr)
@@ -59,7 +60,7 @@ copy_selection_to_clipboard :: proc(editor: ^Editor) {
 
 paste_from_clipboard :: proc(editor: ^Editor) {
 	cstr := sdl.GetClipboardText()
-	if cstr == nil { return }
+	if cstr == nil {return}
 	defer sdl.free(cstr)
 	text_len := 0
 
@@ -150,15 +151,11 @@ move_cursor_up :: proc(editor: ^Editor) {
 		if new_line < 0 || new_line >= len(lines) {
 			return
 		}
-				
+
 		old_col := editor.cursor_col_idx
 		new_col := min(old_col, len(lines[new_line]))
-		
-		editor.cursor_logical_pos = line_col_to_logical_pos(
-				&editor.gap_buffer,
-				new_line,
-				new_col
-		)
+
+		editor.cursor_logical_pos = line_col_to_logical_pos(&editor.gap_buffer, new_line, new_col)
 
 		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 		update_cursor_position(editor)
@@ -174,23 +171,19 @@ move_cursor_down :: proc(editor: ^Editor) {
 		delete(lines, editor.allocator)
 	}
 
-	if editor.cursor_line_idx >= len(lines) -1 {
+	if editor.cursor_line_idx >= len(lines) - 1 {
 		return
 	}
 
 	new_line := editor.cursor_line_idx + 1
 	if new_line < 0 || new_line >= len(lines) {
-		return 
+		return
 	}
 
 	old_col := editor.cursor_col_idx
 	new_col := min(old_col, len(lines[new_line]))
 
-	editor.cursor_logical_pos = line_col_to_logical_pos(
-			&editor.gap_buffer,
-			new_line, 
-			new_col
-	)
+	editor.cursor_logical_pos = line_col_to_logical_pos(&editor.gap_buffer, new_line, new_col)
 
 	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 	update_cursor_position(editor)
@@ -198,13 +191,10 @@ move_cursor_down :: proc(editor: ^Editor) {
 
 move_cursor_left :: proc(editor: ^Editor) {
 	if editor.cursor_logical_pos <= 0 {
-		return 
+		return
 	}
 
-	prev := get_prev_utf8_char_start_byte_offset(
-			&editor.gap_buffer,
-			editor.cursor_logical_pos
-	)
+	prev := get_prev_utf8_char_start_byte_offset(&editor.gap_buffer, editor.cursor_logical_pos)
 	if prev < 0 {
 		prev = 0
 	}
@@ -220,10 +210,7 @@ move_cursor_right :: proc(editor: ^Editor) {
 		return
 	}
 
-	next := get_next_utf8_char_start_byte_offset(
-		&editor.gap_buffer,
-		editor.cursor_logical_pos,
-	)
+	next := get_next_utf8_char_start_byte_offset(&editor.gap_buffer, editor.cursor_logical_pos)
 	editor.cursor_logical_pos = clamp(next, 0, total_len)
 	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 	update_cursor_position(editor)
@@ -269,7 +256,7 @@ init_editor :: proc(
 	editor.line_height = text_renderer.line_height
 	editor.char_width = text_renderer.char_width
 	editor.search_bar = init_search_bar(allocator)
-	editor._is_mouse_selecting = false 
+	editor._is_mouse_selecting = false
 
 	initial_text := `Hello, Deondre!
 This is your Odin code editor.
@@ -288,7 +275,15 @@ Let's make some magic happen!`
 		editor.cursor_col_idx = len(initial_text)
 	}
 
-	editor.file_explorer = init_file_explorer(".", 0, 0, "assets/fonts/MapleMono-NF-Regular.ttf", 16.0, 250, allocator)
+	editor.file_explorer = init_file_explorer(
+		".",
+		0,
+		0,
+		"assets/fonts/MapleMono-NF-Regular.ttf",
+		16.0,
+		250,
+		allocator,
+	)
 	editor.context_menu = init_context_menu(allocator)
 	editor.menu_bar = init_menu_bar(allocator)
 
@@ -323,32 +318,38 @@ render :: proc(editor: ^Editor) {
 	editor_area_width := f32(window_w) - file_explorer_width
 	start_sel, end_sel := selection_range(editor)
 
-	render_search_bar(&editor.search_bar, &editor.text_renderer, editor.renderer, window_w, window_h)
+	render_search_bar(
+		&editor.search_bar,
+		&editor.text_renderer,
+		editor.renderer,
+		window_w,
+		window_h,
+	)
 
 	// Editor file explorer.
 	if editor.file_explorer.is_visible {
-    render_file_explorer(&editor.file_explorer, editor.renderer)
+		render_file_explorer(&editor.file_explorer, editor.renderer)
 
-    // _ = sdl.SetRenderDrawBlendMode(editor.renderer, sdl.BlendMode.NONE)
-    _ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
+		// _ = sdl.SetRenderDrawBlendMode(editor.renderer, sdl.BlendMode.NONE)
+		_ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
 
-    divider_rect := sdl.FRect{
-        x = f32(editor.file_explorer.width) - 1.0, // align to panel’s right edge
-        y = menu_offset_y,
-        w = 1.0,
-        h = f32(window_h) - menu_offset_y,
-    }
+		divider_rect := sdl.FRect {
+			x = f32(editor.file_explorer.width) - 1.0, // align to panel’s right edge
+			y = menu_offset_y,
+			w = 1.0,
+			h = f32(window_h) - menu_offset_y,
+		}
 
-    _ = sdl.RenderFillRect(editor.renderer, &divider_rect)
-  }
+		_ = sdl.RenderFillRect(editor.renderer, &divider_rect)
+	}
 
 	// Selection via, the ARROW KEYS.
-	if editor.has_selection && start_sel != end_sel	{
-		_ = sdl.SetRenderDrawColor(editor.renderer, 0x33,0x66,0xCC, 0x80)
+	if editor.has_selection && start_sel != end_sel {
+		_ = sdl.SetRenderDrawColor(editor.renderer, 0x33, 0x66, 0xCC, 0x80)
 
 		lines := get_lines(&editor.gap_buffer, editor.allocator)
 		defer {
-			for line in lines { delete(line, editor.allocator) }
+			for line in lines {delete(line, editor.allocator)}
 			delete(lines, editor.allocator)
 		}
 
@@ -372,11 +373,11 @@ render :: proc(editor: ^Editor) {
 			width_start := measure_text_width(&editor.text_renderer, line_text[:line_start_col])
 			width_end := measure_text_width(&editor.text_renderer, line_text[:line_end_col])
 
-			rect := sdl.FRect{
+			rect := sdl.FRect {
 				line_x + f32(width_start),
 				y,
 				f32(width_end - width_start),
-				f32(editor.line_height)
+				f32(editor.line_height),
 			}
 			_ = sdl.RenderFillRect(editor.renderer, &rect)
 		}
@@ -451,7 +452,8 @@ render :: proc(editor: ^Editor) {
 	}
 
 	cursor_x := int(gutter_width) - editor.scroll_x
-	cursor_y := menu_offset_y + f32(editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y)
+	cursor_y :=
+		menu_offset_y + f32(editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y)
 	if editor.cursor_line_idx < len(lines) && len(lines) > 0 {
 		current_line := lines[editor.cursor_line_idx]
 		cursor_pos_in_line := min(editor.cursor_col_idx, len(current_line))
@@ -524,97 +526,49 @@ delete_selection :: proc(editor: ^Editor) {
 }
 
 handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
-	selected_file := handle_file_explorer_event(&editor.file_explorer, event)
-	if len(selected_file) > 0 {
-		// load_file_into_editor(editor, selected_file)
-		return
-	}
-
 	if handle_search_bar_event(&editor.search_bar, editor, event) {
 		return
 	}
 
-	if editor.file_explorer.is_visible {
-		handle_file_explorer_event(&editor.file_explorer, event)
+	if handle_file_explorer_event(&editor.file_explorer, event) {
+		return
 	}
 
 	#partial switch event.type {
-	case sdl.EventType.MOUSE_BUTTON_DOWN:
-		fmt.println("test")
-		if event.button.button == 1 {
-			mouse_x := event.button.x
-			mouse_y := event.button.y
-
-			fmt.println("%d, %d", mouse_x, mouse_y)
-
-			line := int(mouse_y / f32(editor.line_height)) + editor.scroll_y / int(editor.line_height)
-			col := int(math.floor((f32(mouse_x - 60.0 + f32(editor.scroll_x)) / editor.char_width)))
-
-			line = clamp(line, 0, get_line_count(&editor.gap_buffer)-1)
-			line_text := get_line(&editor.gap_buffer, line)
-			col = clamp(col, 0, len(line_text))
-			delete(line_text, editor.allocator)
-
-			editor.cursor_logical_pos = line_col_to_logical_pos(&editor.gap_buffer, line, col)
-			move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
-			update_cursor_position(editor)
-
-			editor.selection_start = editor.cursor_logical_pos
-			editor.selection_end = editor.cursor_logical_pos
-			editor.has_selection = true
-			editor._is_mouse_selecting = true
-		}
-	case sdl.EventType.MOUSE_MOTION:
-		fmt.println("test")
-		if editor._is_mouse_selecting {
-			mouse_x := event.motion.x 
-			mouse_y := event.motion.y
-
-			line := int(mouse_y / f32(editor.line_height)) + editor.scroll_y / int(editor.line_height)
-			col := int(math.floor((f32(mouse_x) - 60.0 + f32(editor.scroll_x)) / editor.char_width))
-
-			line = clamp(line, 0, get_line_count(&editor.gap_buffer)-1)
-			line_text := get_line(&editor.gap_buffer, line)
-			col = clamp(col, 0, len(line_text))
-			delete(line_text, editor.allocator)
-
-			pos := line_col_to_logical_pos(&editor.gap_buffer, line, col)
-			editor.selection_end = pos 
-			editor.cursor_logical_pos = pos
-			update_cursor_position(editor)
-		}
-	case sdl.EventType.MOUSE_BUTTON_UP:
-		if event.button.button == sdl.BUTTON_LEFT {
-			editor._is_mouse_selecting = false
-		}
 	case sdl.EventType.KEY_DOWN:
-		shift_held := event.key.mod == sdl.KMOD_LSHIFT 
+		shift_held := event.key.mod == sdl.KMOD_LSHIFT
 
 		if event.key.mod == sdl.KMOD_LCTRL {
 			switch event.key.key {
-				case 'p': // CTRL-P -- Search
-					editor.search_bar.is_visible = !editor.search_bar.is_visible
-					if editor.search_bar.is_visible {
-						editor.search_bar.caret_pos = 0
-				  }
-				case 'a': // CTRL-A -- Select all	
-					editor.selection_start = 0
-					editor.selection_end = current_length(&editor.gap_buffer)
-					editor.has_selection = true
-					return
-				case 'c': // CTRL-C -- Copy
-					copy_selection_to_clipboard(editor)
-					return
-				case 'x': // CTRL-X -- Cut
-					copy_selection_to_clipboard( editor)
-					delete_selection(editor)
-					return
-				case 'v': // CTRL-V	-- Paste
-					paste_from_clipboard(editor)
-					return
-				case 'b': // CTRL-B -- FileExplorer
-					editor.file_explorer.is_visible = !editor.file_explorer.is_visible
-					return
+			case 'p':
+				// CTRL-P -- Search
+				editor.search_bar.is_visible = !editor.search_bar.is_visible
+				if editor.search_bar.is_visible {
+					editor.search_bar.caret_pos = 0
+				}
+			case 'a':
+				// CTRL-A -- Select all	
+				editor.selection_start = 0
+				editor.selection_end = current_length(&editor.gap_buffer)
+				editor.has_selection = true
+				return
+			case 'c':
+				// CTRL-C -- Copy
+				copy_selection_to_clipboard(editor)
+				return
+			case 'x':
+				// CTRL-X -- Cut
+				copy_selection_to_clipboard(editor)
+				delete_selection(editor)
+				return
+			case 'v':
+				// CTRL-V	-- Paste
+				paste_from_clipboard(editor)
+				return
+			case 'b':
+				// CTRL-B -- FileExplorer
+				editor.file_explorer.is_visible = !editor.file_explorer.is_visible
+				return
 			}
 		}
 
@@ -629,19 +583,21 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		case 46:
 			// TODO: Implement delete_bytes_right, also consider UTF-8
 			fmt.println("Delete key pressed (not yet fully implemented).")
-		case 1073741904: // Left Arrow
+		case 1073741904:
+			// Left Arrow
 			old_pos := editor.cursor_logical_pos
 			move_cursor_left(editor)
 			if shift_held {
 				if !editor.has_selection {
 					editor.selection_start = old_pos
-					editor.has_selection =  true
+					editor.has_selection = true
 				}
 				editor.selection_end = editor.cursor_logical_pos
 			} else {
 				clear_selection(editor)
 			}
-		case 1073741903: // Right Arrow 
+		case 1073741903:
+			// Right Arrow
 			old_pos := editor.cursor_logical_pos
 			move_cursor_right(editor)
 			if shift_held {
@@ -652,7 +608,8 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			} else {
 				clear_selection(editor)
 			}
-		case 1073741906: // Up 
+		case 1073741906:
+			// Up
 			old_pos := editor.cursor_logical_pos
 			move_cursor_up(editor)
 			if shift_held {
@@ -664,7 +621,8 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			} else {
 				clear_selection(editor)
 			}
-		case 1073741905: // Down 
+		case 1073741905:
+			// Down
 			old_pos := editor.cursor_logical_pos
 			move_cursor_down(editor)
 			if shift_held {

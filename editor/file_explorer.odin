@@ -278,9 +278,9 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer) {
 	_ = sdl.RenderRect(renderer, &bg_rect)
 }
 
-handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> string {
+handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> bool {
 	if !fe.is_visible {
-		return ""
+		return false
 	}
 
 	#partial switch event.type {
@@ -293,20 +293,22 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> str
 				if entry.is_dir {
 					toggle_directory(fe, fe.selected_index)
 				} else {
-					return entry.path
+					return true
 				}
 			}
 		}
 	case sdl.EventType.MOUSE_BUTTON_DOWN:
-		if event.button.button == 0 {
+		if event.button.button == 1 {
 			mouse_x := f32(event.button.x)
 			mouse_y := f32(event.button.y)
 
+      fmt.printf("Fe%d:SDLM:%d\n", fe.x, mouse_x)
 			in_x_bounds := mouse_x >= fe.x && mouse_x <= fe.x + fe.width
 			in_y_bounds :=
 				mouse_y >= fe.y && mouse_y <= fe.y + f32(fe.visible_height * int(fe.item_height))
 
 			if in_x_bounds && in_y_bounds {
+        fmt.printf("test")
 				relative_y := mouse_y - fe.y
 				clicked_idx := fe.scroll_offset + int(relative_y / f32(fe.item_height))
 
@@ -317,14 +319,14 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> str
 					if entry.is_dir {
 						toggle_directory(fe, clicked_idx)
 					} else {
-						return entry.path
+						return true
 					}
 				}
 			}
 		}
 	}
 
-	return ""
+	return false
 }
 
 toggle_file_explorer :: proc(fe: ^File_Explorer) {
