@@ -4,9 +4,10 @@ import "core:fmt"
 import "core:math"
 import "core:mem"
 import "core:strings"
+import "core:sync"
 import "core:unicode/utf8"
 import sdl "vendor:sdl3"
-
+import lsp "lsp"
 
 Editor :: struct {
 	allocator:           mem.Allocator,
@@ -25,6 +26,7 @@ Editor :: struct {
 	search_bar:          Search_Bar,
 	context_menu:        Context_Menu,
 	menu_bar:            Menu_Bar,
+	lsp:								 ^lsp.LSP_Thread,
 	selection_start:     int,
 	selection_end:       int,
 	has_selection:       bool,
@@ -286,6 +288,7 @@ Let's make some magic happen!`
 	)
 	editor.context_menu = init_context_menu(allocator)
 	editor.menu_bar = init_menu_bar(allocator)
+	editor.lsp = lsp.init_lsp_thread("ols", editor.allocator)
 
 	fmt.println("Editor initialized.")
 	return editor
@@ -301,6 +304,7 @@ destroy_editor :: proc(editor: ^Editor) {
 }
 
 update :: proc(editor: ^Editor, dt: f64) {
+
 }
 
 render :: proc(editor: ^Editor) {

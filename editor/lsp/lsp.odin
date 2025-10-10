@@ -1,110 +1,128 @@
 package lsp
 
-// resource: https://microsoft.github.io/language-server-protocol/
-
-import "core:os"
-import "core:mem"
-import "core:json"
-import "core:sync"
-import "core:strings"
 import "core:fmt"
+// import "core:os"
+import os "core:os/os2"
+import "core:encoding/json"
+import "core:sync"
 import "core:thread"
+import "core:time"
 
-LSP_Message :: struct {
-  id: string,
-  method: string,
-  params: json.Value,
-  result: json.Value,
-  erorr: json.Value,
+Position :: struct {line, character: int }
+Range :: struct { start, end: Position }
+
+Vertex :: struct {
+  id: int,
+  type: string,
+  label: string,
+  name: string, 
+  uri: string,
+  range: Range,
 }
 
+Edge :: struct {
+  id: int,
+  type: string,
+  label: string,
+  outV: int,
+  inVs: []int,
+}
+
+emit_vertex :: proc(v: Vertex) {
+  json_data, _ := json.marshal(v)
+  // os.write_string(os.stdout, string(json_data))
+}
+
+emit_edge :: proc(e: Edge) {
+  json_data, _ := json.marshal(e)
+  // os.write_string(os.stdout, string(json_data))
+}
+
+MAX_THREADS :: 2
 LSP_Thread :: struct {
-  server_process: ^os.Process,
-  send_chan: ^sync.Chan(string),
-  recv_chan: ^sync.Chan(string),
   running: bool,
-  allocator: mem.Allocator,
+  threads: [MAX_THREADS]^thread.Thread,
+  mutex: sync.Mutex,
 }
 
-// Launch lsp server.
-init_lsp_thread :: os.exec_process(
-   executable_path: string,
-   allocator: mem.Allocator = context.allocator,
- ) -> LSP_Thread {
-  lsp: LSP_Thread
-  lsp.allocator = allocator,
-  lsp.send_chan = sync.make_chan(string, 128, allocator)
-  lsp.recv_chan = sync.make_chan(string, 128, allocator)
+init_lsp_thread :: proc(exe_path: string, allocator := context.allocator) -> ^LSP_Thread {
+    // fmt.printf("(stub) starting LSP: %s\n", exe_path)
+    lsp := new(LSP_Thread, allocator)
+    lsp.running = true
+    
+    t_id := 1
+    lsp.threads[0] = thread.create_and_start_with_poly_data2(lsp, lsp.mutex, background_loop)
 
-  process, err := os.exec_process(executable_path, os.ExecOptions{
-    start_suspended = false,
-    redirect_stdin = true,
-    redirect_stdout = true,
-    redirect_stderr = true,
-  })
-  if err != nil {
-    fmt.printf("Failed to start LSP server: %v\n", err)
+    return lsp
+}
+
+background_loop :: proc (ctx: ^LSP_Thread, mutex: sync.Mutex) {
+  counter := 0
+
+  // 1. find the lsp from the active list of lsps.
+  // 2. spawn the process. 
+  // 3. respond to the lsp process.
+
+
+  for ctx.running {
+    time.sleep(1 * time.Second)
+    sync.mutex_lock(&ctx.mutex)
+    // fmt.printf("[LSP Thread]: Tick %v — Generating LSIF vertex/edge\n", counter)
+  
+    v := Vertex{
+      id = counter,
+      type = "vertex",
+      label = "range",
+      name = fmt.aprintf("symbol_%v", counter),
+      uri = "file:///example.odin",
+      range = Range{
+          start = Position{line = counter, character = 1},
+          end   = Position{line = counter, character = 10},
+      },
+    }    
+    e := Edge{
+      id = counter * 10,
+      type = "edge",
+      label = "contains",
+      outV = 1,
+      inVs = []int{v.id},
+    }    
+      
+
+    p: os.Process; {
+      r, w, _ := os.pipe()  
+      defer os.close(w)
+
+      p, _ = os.process_start({ 
+        command = {"echo", "Hello World"},
+        stdout = w,
+      }) 
+    }  
+
+    _, _ = os.process_wait(p)
+      
+    emit_vertex(v)
+    emit_edge(e)
+
+    sync.unlock(&ctx.mutex)
   }
-  lsp.server_process = process
-  lsp.running = true 
-
-  // Background io
-  go lsp_read_loop(&lsp)
-  go lsp_write_loop(&lsp) 
-
-  return lsp  
 }
 
-lsp_read_loop :: proc(lsp: ^LSP_Thread) {
-  stdout := lsp.server_process.stdout
-  buffer: [4096]u8
-  for lsp.running {
-    n, err := os.read(stdout, buffer[:])
-    if err != nil || n <= 0 {
-      return 
-    }
-
-    chunk := string(buffer[:n])
-    // LSP's come prefixed...
-    // e.g. "Content-Length: 123\r\n\r\n{...JSON...}"
-    idx := strings.index(chunk, "\r\n\r\n")
-    if idx != -1 {
-      json_part := chunk[idx+4:]
-      sync.send(lsp.recv_chan, json_part)
-    }
-  }
-  fmt.println("LSP read loop terminated")
+poll_message :: proc(lsp: ^LSP_Thread) -> (string, bool) {
+    return "", false
 }
 
-lsp_write_loop :: proc(lsp: ^LSP_Thread) {
-  stdin := lsp.server_process.stdin
-  for msg in lsp.send_chan {
-    content_len := fmt.aprintf("Content-Length: %d\r\n\r\n", len(msg))
-    full := fmt.aprintf("%s%s", content_len, msg)
-    defer delete(content_len, lsp.allocator)
-    defer delete(full, lsp.allocator)
-    _, _ = os.write(stdin, transmute([]u8)full)
-  }
-  fmt.println("LSP write loop terminated.")
+send_json :: proc(lsp: ^LSP_Thread, method: string, params: any) {
+    fmt.printf("(stub) would send LSP message: %s\n", method)
 }
 
-send_request :: proc(lsp: ^LSP_Thread, method: string, params: json.Value) {
-  id_str := fmt.aprintf("%d", os.get_pid())
-  payload := json.Object{
-    "jsonrpc": "2.0",
-    "id":    id_str,
-    "method": method,
-    "params": params,
-  }
-
-  json_str, _ := json.marshal(payload)
-  sync.send(lsp.send_chan, string(json_str))
-}
-
-shutdown_lsp :: proc (lsp: ^LSP_Thread) {
+shutdown_lsp :: proc(lsp: ^LSP_Thread) {
   lsp.running = false
-  sync.close_chan(lsp.send_chan)
-  sync.close_chan(lsp_recv_chan)
-  os.kill_process(lsp.server_process)
-  fmt.println("LSP thread shut down.")
+  fmt.println("Signaled LSP thread to stop.")
+
+  for t in lsp.threads {
+    thread.destroy(t)
+  }
+
+  fmt.println("All LSP threads stopped successfully.")
 }
