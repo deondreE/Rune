@@ -39,20 +39,17 @@ handle_backspace_search :: proc(sb: ^Search_Bar) {
 	move_gap(&sb.gap_buffer, sb.caret_pos)
 }
 
-handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Event) {
+handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Event) -> bool {
 	if !sb.is_visible {
-		return
+		return false
 	}
 
 	#partial switch event.type {
 	case sdl.EventType.KEY_DOWN:
 		switch event.key.key {
-		case 27:
-			// ESC
+		case 27: // ESC
 			sb.is_visible = false
-
-		case 13:
-			// ENTER
+		case 13: // ENTER
 			query := get_text_segment(
 				&sb.gap_buffer,
 				0,
@@ -62,24 +59,22 @@ handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Ev
 			defer delete(query, editor.allocator)
 			fmt.printf("Search confirmed: %s\n", query)
 			sb.is_visible = false
-
-		case 8:
-			// BACKSPACE
+		case 8: // BACKSPACE
 			handle_backspace_search(sb)
 		}
-
 	case sdl.EventType.TEXT_INPUT:
 		text_cstr := event.text.text
 		text_len := len(string(text_cstr))
-		if text_len == 0 {
-			return
+		if text_len > 0 {
+			text_bytes := ([^]u8)(text_cstr)[:text_len]
+			insert_bytes(&sb.gap_buffer, text_bytes, editor.allocator)
+			sb.caret_pos += text_len
+			move_gap(&sb.gap_buffer, sb.caret_pos)
 		}
-
-		text_bytes := ([^]u8)(text_cstr)[:text_len]
-		insert_bytes(&sb.gap_buffer, text_bytes, editor.allocator)
-		sb.caret_pos += text_len
-		move_gap(&sb.gap_buffer, sb.caret_pos)
 	}
+
+	// return true, because the search bar handled this event
+	return true
 }
 
 render_search_bar :: proc(
@@ -98,7 +93,7 @@ render_search_bar :: proc(
 	bar_w := f32(window_w) - 2 * bar_x
 
 	// Background
-	_ = sdl.SetRenderDrawColor(renderer, 0x30, 0x30, 0x30, 0xF0)
+	_ = sdl.SetRenderDrawColor(renderer, 0x30, 0x30, 0x30, 0xFF)
 	bar_rect := sdl.FRect{bar_x, bar_y, bar_w, bar_h}
 	_ = sdl.RenderFillRect(renderer, &bar_rect)
 

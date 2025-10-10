@@ -375,7 +375,9 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		return
 	}
 
-	handle_search_bar_event(&editor.search_bar, editor, event)
+	if handle_search_bar_event(&editor.search_bar, editor, event) {
+		return
+	}
 	#partial switch event.type {
 	case sdl.EventType.KEY_DOWN:
 		if event.key.mod == sdl.KMOD_LCTRL {
