@@ -24,6 +24,7 @@ Editor :: struct {
 	file_explorer:      File_Explorer,
 	search_bar:         Search_Bar,
 	context_menu: 			Context_Menu,
+	menu_bar: 					Menu_Bar,
 	selection_start: int,
 	selection_end: int,
 	has_selection: bool, _is_mouse_selecting: bool,
@@ -289,6 +290,7 @@ Let's make some magic happen!`
 
 	editor.file_explorer = init_file_explorer(".", 0, 0, "assets/fonts/MapleMono-NF-Regular.ttf", 16.0, 250, allocator)
 	editor.context_menu = init_context_menu(allocator)
+	editor.menu_bar = init_menu_bar(allocator)
 
 	fmt.println("Editor initialized.")
 	return editor
@@ -314,7 +316,9 @@ render :: proc(editor: ^Editor) {
 	window_h: i32
 	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
 
+	menu_offset_y := f32(editor.menu_bar.height)
 	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
+	text_origin_x := f32(file_explorer_width)
 	editor_area_x := file_explorer_width
 	editor_area_width := f32(window_w) - file_explorer_width
 	start_sel, end_sel := selection_range(editor)
@@ -330,9 +334,9 @@ render :: proc(editor: ^Editor) {
 
     divider_rect := sdl.FRect{
         x = f32(editor.file_explorer.width) - 1.0, // align to panel’s right edge
-        y = 0.0,
+        y = menu_offset_y,
         w = 1.0,
-        h = f32(window_h),
+        h = f32(window_h) - menu_offset_y,
     }
 
     _ = sdl.RenderFillRect(editor.renderer, &divider_rect)
@@ -388,7 +392,7 @@ render :: proc(editor: ^Editor) {
 	}
 
 	gutter_width := f32(60) // Fixed width in pixels
-	text_area_x := editor_area_x + gutter_width
+	text_area_x := text_origin_x + gutter_width
 
 	start_line := max(0, editor.scroll_y / int(editor.line_height))
 	visible_lines := int(f32(window_h) / f32(editor.line_height)) + 2
@@ -397,7 +401,7 @@ render :: proc(editor: ^Editor) {
 	// Lines, numbers, and text content
 	for i := start_line; i < end_line; i += 1 {
 		if i < len(lines) {
-			y := f32(i * int(editor.line_height) - editor.scroll_y)
+			y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
 
 			if y < -f32(editor.line_height) || y > f32(window_h) {
 				continue
@@ -447,7 +451,7 @@ render :: proc(editor: ^Editor) {
 	}
 
 	cursor_x := int(gutter_width) - editor.scroll_x
-	cursor_y := editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y
+	cursor_y := menu_offset_y + f32(editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y)
 	if editor.cursor_line_idx < len(lines) && len(lines) > 0 {
 		current_line := lines[editor.cursor_line_idx]
 		cursor_pos_in_line := min(editor.cursor_col_idx, len(current_line))
@@ -474,6 +478,7 @@ render :: proc(editor: ^Editor) {
 	}
 
 	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
+	render_menu_bar(&editor.menu_bar, editor.renderer)
 	sdl.RenderPresent(editor.renderer)
 }
 
