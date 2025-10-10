@@ -23,6 +23,7 @@ Editor :: struct {
 	char_width:         f32,
 	file_explorer:      File_Explorer,
 	search_bar:         Search_Bar,
+	context_menu: 			Context_Menu,
 	selection_start: int,
 	selection_end: int,
 	has_selection: bool, _is_mouse_selecting: bool,
@@ -286,7 +287,8 @@ Let's make some magic happen!`
 		editor.cursor_col_idx = len(initial_text)
 	}
 
-	editor.file_explorer = init_file_explorer(".", &editor.text_renderer, 0, 0, 250, allocator)
+	editor.file_explorer = init_file_explorer(".", 0, 0, "assets/fonts/MapleMono-NF-Regular.ttf", 16.0, 250, allocator)
+	editor.context_menu = init_context_menu(allocator)
 
 	fmt.println("Editor initialized.")
 	return editor
@@ -294,7 +296,9 @@ Let's make some magic happen!`
 
 destroy_editor :: proc(editor: ^Editor) {
 	destroy_search_bar(&editor.search_bar, editor.allocator)
+	destroy_context_menu(&editor.context_menu)
 	destroy_gap_buffer(&editor.gap_buffer, editor.allocator)
+	destroy_file_explorer(&editor.file_explorer)
 	destroy_text_renderer(&editor.text_renderer)
 	fmt.println("Editor destroyed.")
 }
@@ -317,20 +321,22 @@ render :: proc(editor: ^Editor) {
 
 	render_search_bar(&editor.search_bar, &editor.text_renderer, editor.renderer, window_w, window_h)
 
-
+	// Editor file explorer.
 	if editor.file_explorer.is_visible {
-		render_file_explorer(&editor.file_explorer, editor.renderer)
+    render_file_explorer(&editor.file_explorer, editor.renderer)
 
-		// Draw seperator
-		_ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
-		seperator_rect := sdl.FRect {
-			x = file_explorer_width - 1,
-			y = 0,
-			w = 1,
-			h = f32(window_h),
-		}
-		_ = sdl.RenderFillRect(editor.renderer, &seperator_rect)
-	}
+    // _ = sdl.SetRenderDrawBlendMode(editor.renderer, sdl.BlendMode.NONE)
+    _ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
+
+    divider_rect := sdl.FRect{
+        x = f32(editor.file_explorer.width) - 1.0, // align to panel’s right edge
+        y = 0.0,
+        w = 1.0,
+        h = f32(window_h),
+    }
+
+    _ = sdl.RenderFillRect(editor.renderer, &divider_rect)
+  }
 
 	// Selection via, the ARROW KEYS.
 	if editor.has_selection && start_sel != end_sel	{
@@ -467,6 +473,7 @@ render :: proc(editor: ^Editor) {
 		_ = sdl.RenderFillRect(editor.renderer, &cursor_rect)
 	}
 
+	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
 	sdl.RenderPresent(editor.renderer)
 }
 
@@ -522,10 +529,14 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		return
 	}
 
+	if editor.file_explorer.is_visible {
+		handle_file_explorer_event(&editor.file_explorer, event)
+	}
+
 	#partial switch event.type {
 	case sdl.EventType.MOUSE_BUTTON_DOWN:
 		fmt.println("test")
-		if event.button.which == 0 {
+		if event.button.button == 1 {
 			mouse_x := event.button.x
 			mouse_y := event.button.y
 
@@ -595,6 +606,9 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 					return
 				case 'v': // CTRL-V	-- Paste
 					paste_from_clipboard(editor)
+					return
+				case 'b': // CTRL-B -- FileExplorer
+					editor.file_explorer.is_visible = !editor.file_explorer.is_visible
 					return
 			}
 		}

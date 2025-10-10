@@ -47,9 +47,11 @@ handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Ev
 	#partial switch event.type {
 	case sdl.EventType.KEY_DOWN:
 		switch event.key.key {
-		case 27: // ESC
+		case 27:
+			// ESC
 			sb.is_visible = false
-		case 13: // ENTER
+		case 13:
+			// ENTER
 			query := get_text_segment(
 				&sb.gap_buffer,
 				0,
@@ -59,7 +61,8 @@ handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Ev
 			defer delete(query, editor.allocator)
 			fmt.printf("Search confirmed: %s\n", query)
 			sb.is_visible = false
-		case 8: // BACKSPACE
+		case 8:
+			// BACKSPACE
 			handle_backspace_search(sb)
 		}
 	case sdl.EventType.TEXT_INPUT:

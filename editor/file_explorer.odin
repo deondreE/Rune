@@ -26,19 +26,24 @@ File_Explorer :: struct {
 	width:          f32,
 	x:              f32,
 	y:              f32,
-	text_renderer:  ^Text_Renderer,
+	text_renderer:  Text_Renderer,
 	is_visible:     bool,
 	root_path:      string,
 }
 
 init_file_explorer :: proc(
 	root_path: string,
-	text_renderer: ^Text_Renderer,
 	x: f32 = 0,
 	y: f32 = 0,
+	font_path: string = "assets/fonts/MapleMono-Regular.ttf",
+	font_size: f32 = 16,
 	width: f32 = 250,
 	allocator: mem.Allocator = context.allocator,
 ) -> File_Explorer {
+	tr, ok := init_text_renderer(font_path, font_size, allocator)
+	if !ok {
+		fmt.println("File_Explorer: Broken font renderer")
+	}
 	fe := File_Explorer {
 		allocator      = allocator,
 		root_path      = strings.clone(root_path, allocator),
@@ -46,12 +51,12 @@ init_file_explorer :: proc(
 		selected_index = 0,
 		scroll_offset  = 0,
 		visible_height = 30,
-		item_height    = text_renderer.line_height,
 		width          = width,
 		x              = x,
 		y              = y,
-		text_renderer  = text_renderer,
+		text_renderer  = tr,
 		is_visible     = false,
+		item_height    = tr.line_height,
 	}
 
 	refresh_file_explorer(&fe)
@@ -61,10 +66,12 @@ init_file_explorer :: proc(
 destroy_file_explorer :: proc(fe: ^File_Explorer) {
 	for entry in fe.entries {
 		delete(entry.name, fe.allocator)
-		delete(entry.name, fe.allocator)
+		delete(entry.path, fe.allocator)
 	}
 	delete(fe.entries)
 	delete(fe.root_path, fe.allocator)
+
+	destroy_text_renderer(&fe.text_renderer)
 }
 
 refresh_file_explorer :: proc(fe: ^File_Explorer) {
@@ -143,9 +150,11 @@ toggle_directory :: proc(fe: ^File_Explorer, idx: int) {
 	if !entry.is_dir {return}
 
 	if entry.is_open {
-		load_directory_at_index(fe, idx)
-	} else {
 		remove_directory_contents(fe, idx)
+		entry.is_open = false
+	} else {
+		load_directory_at_index(fe, idx)
+		entry.is_open = true
 	}
 }
 
@@ -208,73 +217,65 @@ remove_directory_contents :: proc(fe: ^File_Explorer, dir_idx: int) {
 		delete(fe.entries[i].path, fe.allocator)
 
 		ordered_remove(&fe.entries, i)
+		continue
 	}
 }
 
 render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer) {
 	if !fe.is_visible {return}
+	if len(fe.entries) == 0 {return}
 
 	bg_rect := sdl.FRect {
 		x = fe.x,
 		y = fe.y,
 		w = fe.width,
-		h = f32(fe.visible_height * int(fe.item_height)),
+		h = f32(fe.visible_height) * f32(fe.item_height),
 	}
 	_ = sdl.SetRenderDrawColor(renderer, 0x25, 0x25, 0x25, 0xFF)
 	_ = sdl.RenderFillRect(renderer, &bg_rect)
 
-	// Border
-	_ = sdl.SetRenderDrawColor(renderer, 0x40, 0x40, 0x40, 0xFF)
-	_ = sdl.RenderRect(renderer, &bg_rect)
-
 	start_idx := fe.scroll_offset
 	end_idx := min(len(fe.entries), start_idx + fe.visible_height)
 
-	original_color := fe.text_renderer.color
-
-	for i in start_idx ..< end_idx {
-		entry := &fe.entries[i]
-		y := fe.y + f32((i - start_idx) * int(fe.item_height))
-
-		// Highlight the selected entry
+	for i := start_idx; i < end_idx; i += 1 {
 		if i == fe.selected_index {
-			hightlight_rect := sdl.FRect {
+			y := fe.y + f32(i - start_idx) * f32(fe.item_height)
+			highlight := sdl.FRect {
 				x = fe.x,
 				y = y,
 				w = fe.width,
 				h = f32(fe.item_height),
 			}
 			_ = sdl.SetRenderDrawColor(renderer, 0x40, 0x40, 0x60, 0xFF)
-			_ = sdl.RenderFillRect(renderer, &hightlight_rect)
+			_ = sdl.RenderFillRect(renderer, &highlight)
 		}
+	}
+	original_color := fe.text_renderer.color
+	for i := start_idx; i < end_idx; i += 1 {
+		entry := &fe.entries[i]
+		y := fe.y + f32(i - start_idx) * f32(fe.item_height)
 
-		// Calculate indentation
-		indent := f32(entry.depth * 20) // 20 pixels per depth
-		x := fe.x + indent + 5 // padding
+		indent := f32(entry.depth * 20)
+		x := fe.x + indent + 5
 
-		icon := entry.is_dir ? (entry.is_open ? "📂" : "📁") : "📄"
-		render_text(fe.text_renderer, renderer, icon, x, y, fe.allocator)
+		icon := entry.is_dir ? (entry.is_open ? "↓" : "»") : "°"
+		render_text(&fe.text_renderer, renderer, icon, x, y, fe.allocator)
+		if (renderer == nil) {fmt.println("Test brokey")}
 
 		filename_x := x + 25
-
 		if entry.is_dir {
 			fe.text_renderer.color = sdl.Color{0x80, 0xC0, 0xFF, 0xFF}
 		} else {
-			ext := filepath.ext(entry.name)
-			switch ext {
-			case ".odin":
-				fe.text_renderer.color = sdl.Color{0xFF, 0x80, 0x80, 0xFF}
-			case ".txt", ".md":
-				fe.text_renderer.color = sdl.Color{0x80, 0xFF, 0x80, 0xFF}
-			case:
-				fe.text_renderer.color = sdl.Color{0xC0, 0xC0, 0xC0, 0xFF}
-			}
+			fe.text_renderer.color = sdl.Color{0xC0, 0xC0, 0xC0, 0xFF}
 		}
 
-		render_text(fe.text_renderer, renderer, entry.name, filename_x, y, fe.allocator)
+		render_text(&fe.text_renderer, renderer, entry.name, filename_x, y, fe.allocator)
 	}
-
 	fe.text_renderer.color = original_color
+
+	// 4. Border (optional, above background but below text feels fine too)
+	_ = sdl.SetRenderDrawColor(renderer, 0x40, 0x40, 0x40, 0xFF)
+	_ = sdl.RenderRect(renderer, &bg_rect)
 }
 
 handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> string {

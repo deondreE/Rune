@@ -166,11 +166,7 @@ update_line_starts_after_insert :: proc(gb: ^Gap_Buffer, insert_pos: int, insert
 }
 
 // Deletes a range of bytes between [start, end]  from logical text.
-delete_bytes_range :: proc (
-	gb: ^Gap_Buffer,
-	start: int,
-	count: int,
-) {
+delete_bytes_range :: proc(gb: ^Gap_Buffer, start: int, count: int) {
 	if count <= 0 || start < 0 {
 		return
 	}
