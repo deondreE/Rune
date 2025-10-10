@@ -80,3 +80,42 @@ render_menu_bar :: proc(bar: ^Menu_Bar, renderer: ^sdl.Renderer) {
     line_rect := sdl.FRect{0, f32(bar.height - 1), 9999, 1}
     _ = sdl.RenderFillRect(renderer, &line_rect)
 }
+
+handle_menu_bar_event :: proc(bar: ^Menu_Bar, event: ^sdl.Event) -> bool {
+	if !bar.is_visible { return false }
+
+	#partial switch event.type { 
+		case sdl.EventType.MOUSE_MOTION:
+			mouse_x := f32(event.motion.x)
+			mouse_y := f32(event.motion.y)
+			if mouse_y < f32(bar.height) {
+				x_offset: f32 = 10
+				for it, i in bar.items {
+					if mouse_x >= x_offset && mouse_x <= x_offset + it.width {
+						bar.hover_index = i 
+						break
+					}
+					bar.hover_index = -1
+					x_offset += it.width
+				}
+			} else {
+				bar.hover_index = -1
+			}
+		case sdl.EventType.MOUSE_BUTTON_DOWN:
+			if event.button.button == sdl.BUTTON_LEFT {
+				mouse_x := f32(event.button.x)
+				mouse_y := f32(event.button.y)
+				if mouse_y < f32(bar.height) {
+					x_offset: f32 = 10
+					for it, i in bar.items {
+						if mouse_x >= x_offset && mouse_x <= x_offset + it.width {
+							return true
+						}
+						x_offset += it.width
+					}
+				}
+			}
+	}
+
+	return false
+}

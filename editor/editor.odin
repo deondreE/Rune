@@ -534,6 +534,10 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		return
 	}
 
+	if handle_search_bar_event(&editor.search_bar, editor, event) {
+		return
+	}
+
 	#partial switch event.type {
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT
@@ -574,6 +578,8 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 
 		switch event.key.key {
 		case 27:
+		case 9:
+			insert_char(editor, '\t')
 		case 13:
 			// enter
 			insert_char(editor, '\n')

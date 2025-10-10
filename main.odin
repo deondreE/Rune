@@ -66,6 +66,8 @@ main :: proc() {
 
 		for sdl.PollEvent(&event) {
 			#partial switch event.type {
+			case sdl.EventType.MOUSE_WHEEL:
+				editor.handle_event(&editor_state, &event)
 			case sdl.EventType.MOUSE_MOTION:
 				editor.handle_event(&editor_state, &event)
 			case sdl.EventType.MOUSE_BUTTON_DOWN:
