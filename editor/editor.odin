@@ -25,7 +25,7 @@ Editor :: struct {
 	search_bar:         Search_Bar,
 	selection_start: int,
 	selection_end: int,
-	has_selection: bool,
+	has_selection: bool, _is_mouse_selecting: bool,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -42,6 +42,40 @@ selection_range :: proc(editor: ^Editor) -> (int, int) {
 	} else {
 		return editor.selection_end, editor.selection_start
 	}
+}
+
+copy_selection_to_clipboard :: proc(editor: ^Editor) {
+	if !editor.has_selection {
+		return 
+	}
+	start, end := selection_range(editor)
+	text := get_text_segment(&editor.gap_buffer, start, end - start,editor.allocator)
+	text_cstr := strings.clone_to_cstring(text, editor.allocator)
+	defer delete(text, editor.allocator)
+	_ = sdl.SetClipboardText(text_cstr)
+}
+
+paste_from_clipboard :: proc(editor: ^Editor) {
+	cstr := sdl.GetClipboardText()
+	if cstr == nil { return }
+	defer sdl.free(cstr)
+	text_len := 0
+
+	// TODO: Change this.
+	for cstr[text_len] != 0 {
+		text_len += 1
+	}
+	if text_len == 0 {return}
+
+	text_bytes := ([^]u8)(cstr)[:text_len]
+	if editor.has_selection {
+		delete_selection(editor)
+	}
+
+	insert_bytes(&editor.gap_buffer, text_bytes, editor.allocator)
+	editor.cursor_logical_pos += len(text_bytes)
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	update_cursor_position(editor)
 }
 
 get_prev_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
@@ -233,6 +267,7 @@ init_editor :: proc(
 	editor.line_height = text_renderer.line_height
 	editor.char_width = text_renderer.char_width
 	editor.search_bar = init_search_bar(allocator)
+	editor._is_mouse_selecting = false 
 
 	initial_text := `Hello, Deondre!
 This is your Odin code editor.
@@ -250,7 +285,6 @@ Let's make some magic happen!`
 	} else {
 		editor.cursor_col_idx = len(initial_text)
 	}
-
 
 	editor.file_explorer = init_file_explorer(".", &editor.text_renderer, 0, 0, 250, allocator)
 
@@ -440,7 +474,7 @@ handle_backspace :: proc(editor: ^Editor) {
 	if editor.has_selection {
 		delete_selection(editor)
 	}
-	
+
 	if editor.cursor_logical_pos > 0 {
 		prev_pos := get_prev_utf8_char_start_byte_offset(
 			&editor.gap_buffer,
@@ -487,17 +521,81 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	if handle_search_bar_event(&editor.search_bar, editor, event) {
 		return
 	}
+
 	#partial switch event.type {
+	case sdl.EventType.MOUSE_BUTTON_DOWN:
+		fmt.println("test")
+		if event.button.which == 0 {
+			mouse_x := event.button.x
+			mouse_y := event.button.y
+
+			fmt.println("%d, %d", mouse_x, mouse_y)
+
+			line := int(mouse_y / f32(editor.line_height)) + editor.scroll_y / int(editor.line_height)
+			col := int(math.floor((f32(mouse_x - 60.0 + f32(editor.scroll_x)) / editor.char_width)))
+
+			line = clamp(line, 0, get_line_count(&editor.gap_buffer)-1)
+			line_text := get_line(&editor.gap_buffer, line)
+			col = clamp(col, 0, len(line_text))
+			delete(line_text, editor.allocator)
+
+			editor.cursor_logical_pos = line_col_to_logical_pos(&editor.gap_buffer, line, col)
+			move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+			update_cursor_position(editor)
+
+			editor.selection_start = editor.cursor_logical_pos
+			editor.selection_end = editor.cursor_logical_pos
+			editor.has_selection = true
+			editor._is_mouse_selecting = true
+		}
+	case sdl.EventType.MOUSE_MOTION:
+		fmt.println("test")
+		if editor._is_mouse_selecting {
+			mouse_x := event.motion.x 
+			mouse_y := event.motion.y
+
+			line := int(mouse_y / f32(editor.line_height)) + editor.scroll_y / int(editor.line_height)
+			col := int(math.floor((f32(mouse_x) - 60.0 + f32(editor.scroll_x)) / editor.char_width))
+
+			line = clamp(line, 0, get_line_count(&editor.gap_buffer)-1)
+			line_text := get_line(&editor.gap_buffer, line)
+			col = clamp(col, 0, len(line_text))
+			delete(line_text, editor.allocator)
+
+			pos := line_col_to_logical_pos(&editor.gap_buffer, line, col)
+			editor.selection_end = pos 
+			editor.cursor_logical_pos = pos
+			update_cursor_position(editor)
+		}
+	case sdl.EventType.MOUSE_BUTTON_UP:
+		if event.button.button == sdl.BUTTON_LEFT {
+			editor._is_mouse_selecting = false
+		}
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT 
-		fmt.println(shift_held)
 
 		if event.key.mod == sdl.KMOD_LCTRL {
-			if event.key.key == 'p' {
-				editor.search_bar.is_visible = !editor.search_bar.is_visible
-				if editor.search_bar.is_visible {
-					editor.search_bar.caret_pos = 0
-				}
+			switch event.key.key {
+				case 'p': // CTRL-P -- Search
+					editor.search_bar.is_visible = !editor.search_bar.is_visible
+					if editor.search_bar.is_visible {
+						editor.search_bar.caret_pos = 0
+				  }
+				case 'a': // CTRL-A -- Select all	
+					editor.selection_start = 0
+					editor.selection_end = current_length(&editor.gap_buffer)
+					editor.has_selection = true
+					return
+				case 'c': // CTRL-C -- Copy
+					copy_selection_to_clipboard(editor)
+					return
+				case 'x': // CTRL-X -- Cut
+					copy_selection_to_clipboard( editor)
+					delete_selection(editor)
+					return
+				case 'v': // CTRL-V	-- Paste
+					paste_from_clipboard(editor)
+					return
 			}
 		}
 

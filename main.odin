@@ -36,6 +36,7 @@ main :: proc() {
 	defer sdl.DestroyWindow(window)
 
 	set_window_icon(window, allocator)
+	_ = sdl.SetWindowFocusable(window, true)
 
 	renderer := sdl.CreateRenderer(window, nil)
 	if renderer == nil {
