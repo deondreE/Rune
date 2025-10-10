@@ -1,16 +1,22 @@
 package main
 
 import "core:fmt"
+import "core:mem"
 import "core:os"
+import "core:strings"
+import "core:sys/darwin/Security"
 import "core:time"
 import editor "editor"
 import sdl "vendor:sdl3"
+import sdl_image "vendor:sdl3/image"
 
 WINDOW_WIDTH :: 1200
 WINDOW_HEIGHT :: 800
 WINDOW_TITLE :: "Odin Code Editor"
+WINDOW_ICON_PATH :: "assets/icon/icon.png"
 
 main :: proc() {
+	allocator := context.allocator
 	if !sdl.Init(sdl.INIT_VIDEO) {
 		fmt.eprintf("SDL could not initialized! SDL_Error: %s\n", sdl.GetError())
 		return
@@ -28,6 +34,8 @@ main :: proc() {
 		return
 	}
 	defer sdl.DestroyWindow(window)
+
+	set_window_icon(window, allocator)
 
 	renderer := sdl.CreateRenderer(window, nil)
 	if renderer == nil {
@@ -71,14 +79,19 @@ main :: proc() {
 
 		editor.update(&editor_state, dt)
 		editor.render(&editor_state)
-
-		// Rendering
-		// sdl.SetRenderDrawColor(renderer, 0x00, 0x00, 0xFF, 0xFF)
-		// sdl.RenderClear(renderer)
-
-		// sdl.RenderPresent(renderer)
-		// time.sleep(time.Duration(16 * time.Millisecond)) // ~60 fps
 	}
 
 	fmt.println("Application gracefully quit")
+}
+
+set_window_icon :: proc(window: ^sdl.Window, allocator: mem.Allocator) {
+	icon_path := WINDOW_ICON_PATH
+
+	surface := sdl_image.Load(strings.clone_to_cstring(icon_path, allocator))
+	if surface == nil {
+		fmt.eprintf("Could not load window icon: %s:\n", icon_path)
+		return
+	}
+
+	sdl.SetWindowIcon(window, surface)
 }
