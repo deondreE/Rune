@@ -23,6 +23,25 @@ Editor :: struct {
 	char_width:         f32,
 	file_explorer:      File_Explorer,
 	search_bar:         Search_Bar,
+	selection_start: int,
+	selection_end: int,
+	has_selection: bool,
+}
+
+clear_selection :: proc(editor: ^Editor) {
+	editor.has_selection = false
+}
+
+selection_range :: proc(editor: ^Editor) -> (int, int) {
+	if !editor.has_selection {
+		return editor.cursor_logical_pos, editor.cursor_logical_pos
+	}
+
+	if editor.selection_start < editor.selection_end {
+		return editor.selection_start, editor.selection_end
+	} else {
+		return editor.selection_end, editor.selection_start
+	}
 }
 
 get_prev_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
@@ -82,7 +101,6 @@ update_cursor_position :: proc(editor: ^Editor) {
 
 move_cursor_up :: proc(editor: ^Editor) {
 	if editor.cursor_line_idx > 0 {
-		new_line := editor.cursor_line_idx - 1
 		// Try to maintain column position, but clamp to line length
 		lines := get_lines(&editor.gap_buffer, editor.allocator)
 		defer {
@@ -92,16 +110,22 @@ move_cursor_up :: proc(editor: ^Editor) {
 			delete(lines, editor.allocator)
 		}
 
-		if new_line < len(lines) {
-			new_col := min(editor.cursor_col_idx, len(lines[new_line]))
-			editor.cursor_logical_pos = line_col_to_logical_pos(
+		new_line := editor.cursor_line_idx - 1
+		if new_line < 0 || new_line >= len(lines) {
+			return
+		}
+				
+		old_col := editor.cursor_col_idx
+		new_col := min(old_col, len(lines[new_line]))
+		
+		editor.cursor_logical_pos = line_col_to_logical_pos(
 				&editor.gap_buffer,
 				new_line,
-				new_col,
-			)
-			update_cursor_position(editor)
-			move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
-		}
+				new_col
+		)
+
+		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+		update_cursor_position(editor)
 	}
 }
 
@@ -114,36 +138,59 @@ move_cursor_down :: proc(editor: ^Editor) {
 		delete(lines, editor.allocator)
 	}
 
-	if editor.cursor_line_idx < len(lines) - 1 {
-		new_line := editor.cursor_line_idx + 1
-		new_col := min(editor.cursor_col_idx, len(lines[new_line]))
-		editor.cursor_logical_pos = line_col_to_logical_pos(&editor.gap_buffer, new_line, new_col)
-		update_cursor_position(editor)
-		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	if editor.cursor_line_idx >= len(lines) -1 {
+		return
 	}
+
+	new_line := editor.cursor_line_idx + 1
+	if new_line < 0 || new_line >= len(lines) {
+		return 
+	}
+
+	old_col := editor.cursor_col_idx
+	new_col := min(old_col, len(lines[new_line]))
+
+	editor.cursor_logical_pos = line_col_to_logical_pos(
+			&editor.gap_buffer,
+			new_line, 
+			new_col
+	)
+
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	update_cursor_position(editor)
 }
 
 move_cursor_left :: proc(editor: ^Editor) {
-	if editor.cursor_logical_pos > 0 {
-		editor.cursor_logical_pos = get_prev_utf8_char_start_byte_offset(
-			&editor.gap_buffer,
-			editor.cursor_logical_pos,
-		)
-		update_cursor_position(editor)
-		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	if editor.cursor_logical_pos <= 0 {
+		return 
 	}
+
+	prev := get_prev_utf8_char_start_byte_offset(
+			&editor.gap_buffer,
+			editor.cursor_logical_pos
+	)
+	if prev < 0 {
+		prev = 0
+	}
+
+	editor.cursor_logical_pos = prev
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	update_cursor_position(editor)
 }
 
 move_cursor_right :: proc(editor: ^Editor) {
 	total_len := current_length(&editor.gap_buffer)
-	if editor.cursor_logical_pos < total_len {
-		editor.cursor_logical_pos = get_next_utf8_char_start_byte_offset(
-			&editor.gap_buffer,
-			editor.cursor_logical_pos,
-		)
-		update_cursor_position(editor)
-		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	if editor.cursor_logical_pos >= total_len {
+		return
 	}
+
+	next := get_next_utf8_char_start_byte_offset(
+		&editor.gap_buffer,
+		editor.cursor_logical_pos,
+	)
+	editor.cursor_logical_pos = clamp(next, 0, total_len)
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	update_cursor_position(editor)
 }
 
 insert_char :: proc(editor: ^Editor, r: rune) {
@@ -229,8 +276,10 @@ render :: proc(editor: ^Editor) {
 	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
 	editor_area_x := file_explorer_width
 	editor_area_width := f32(window_w) - file_explorer_width
+	start_sel, end_sel := selection_range(editor)
 
 	render_search_bar(&editor.search_bar, &editor.text_renderer, editor.renderer, window_w, window_h)
+
 
 	if editor.file_explorer.is_visible {
 		render_file_explorer(&editor.file_explorer, editor.renderer)
@@ -246,6 +295,47 @@ render :: proc(editor: ^Editor) {
 		_ = sdl.RenderFillRect(editor.renderer, &seperator_rect)
 	}
 
+	// Selection via, the ARROW KEYS.
+	if editor.has_selection && start_sel != end_sel	{
+		_ = sdl.SetRenderDrawColor(editor.renderer, 0x33,0x66,0xCC, 0x80)
+
+		lines := get_lines(&editor.gap_buffer, editor.allocator)
+		defer {
+			for line in lines { delete(line, editor.allocator) }
+			delete(lines, editor.allocator)
+		}
+
+		sel_line_start, sel_col_start := logical_pos_to_line_col(&editor.gap_buffer, start_sel)
+		sel_line_end, sel_col_end := logical_pos_to_line_col(&editor.gap_buffer, end_sel)
+
+		for i := sel_line_start; i <= sel_line_end && i < len(lines); i += 1 {
+			y := f32(i * int(editor.line_height) - editor.scroll_y)
+			line_x := f32(60) - f32(editor.scroll_x)
+			line_text := lines[i]
+
+			line_start_col := 0
+			line_end_col := len(line_text)
+
+			if i == sel_line_start {
+				line_start_col = sel_col_start
+			}
+			if i == sel_line_end {
+				line_end_col = sel_col_end
+			}
+			width_start := measure_text_width(&editor.text_renderer, line_text[:line_start_col])
+			width_end := measure_text_width(&editor.text_renderer, line_text[:line_end_col])
+
+			rect := sdl.FRect{
+				line_x + f32(width_start),
+				y,
+				f32(width_end - width_start),
+				f32(editor.line_height)
+			}
+			_ = sdl.RenderFillRect(editor.renderer, &rect)
+		}
+	}
+
+	// Core Editor text & Cursor
 	lines := get_lines(&editor.gap_buffer, editor.allocator)
 	defer {
 		for line in lines {
@@ -380,6 +470,9 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	}
 	#partial switch event.type {
 	case sdl.EventType.KEY_DOWN:
+		shift_held := event.key.mod == sdl.KMOD_LSHIFT 
+		fmt.println(shift_held)
+
 		if event.key.mod == sdl.KMOD_LCTRL {
 			if event.key.key == 'p' {
 				editor.search_bar.is_visible = !editor.search_bar.is_visible
@@ -388,6 +481,7 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 				}
 			}
 		}
+		
 		switch event.key.key {
 		case 27:
 		case 13:
@@ -399,14 +493,53 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		case 46:
 			// TODO: Implement delete_bytes_right, also consider UTF-8
 			fmt.println("Delete key pressed (not yet fully implemented).")
-		case 37:
+		case 1073741904: // Left Arrow
+			old_pos := editor.cursor_logical_pos
 			move_cursor_left(editor)
-		case 39:
+			if shift_held {
+				if !editor.has_selection {
+					editor.selection_start = old_pos
+					editor.has_selection =  true
+				}
+				editor.selection_end = editor.cursor_logical_pos
+			} else {
+				clear_selection(editor)
+			}
+		case 1073741903: // Right Arrow 
+			old_pos := editor.cursor_logical_pos
 			move_cursor_right(editor)
-		case 38:
+			if shift_held {
+				if !editor.has_selection {
+					editor.selection_start = old_pos
+					editor.has_selection = true
+				}
+			} else {
+				clear_selection(editor)
+			}
+		case 1073741906: // Up 
+			old_pos := editor.cursor_logical_pos
 			move_cursor_up(editor)
-		case 40:
+			if shift_held {
+				if !editor.has_selection {
+					editor.selection_start = old_pos
+					editor.has_selection = true
+				}
+				editor.selection_end = editor.cursor_logical_pos
+			} else {
+				clear_selection(editor)
+			}
+		case 1073741905: // Down 
+			old_pos := editor.cursor_logical_pos
 			move_cursor_down(editor)
+			if shift_held {
+				if !editor.has_selection {
+					editor.selection_start = old_pos
+					editor.has_selection = true
+				}
+				editor.selection_end = editor.cursor_logical_pos
+			} else {
+				clear_selection(editor)
+			}
 		case 113:
 			toggle_file_explorer(&editor.file_explorer)
 			return
