@@ -11,11 +11,13 @@ import "core:unicode/utf8"
 import sdl "vendor:sdl3"
 
 Search_Bar :: struct {
-	is_visible: bool,
-	caret_pos:  int,
-	gap_buffer: Gap_Buffer,
-	query:      string,
-	allocator:  mem.Allocator,
+	is_visible:     bool,
+	caret_pos:      int,
+	gap_buffer:     Gap_Buffer,
+	query:          string,
+	matches:        []File_Match,
+	selected_index: int,
+	allocator:      mem.Allocator,
 }
 
 File_Match :: struct {
@@ -37,6 +39,7 @@ search_files_in_dir :: proc(
 	if len(query) == 0 {
 		return matches[:]
 	}
+
 	handle, ok := os.open(dir_path, os.O_RDONLY)
 	if ok != os.ERROR_NONE {
 		fmt.eprintf("Cannot open directory: %s\n", dir_path)
@@ -68,7 +71,6 @@ search_files_in_dir :: proc(
 
 		if info.is_dir {
 			sub_matches := search_files_in_dir(full_path, query, allocator)
-
 			for m in sub_matches {
 				append(&matches, m)
 			}
@@ -96,7 +98,6 @@ search_files_in_dir :: proc(
 		}
 
 		delete(file_bytes, allocator)
-		delete(lines, allocator)
 	}
 
 	return matches[:]
@@ -152,10 +153,15 @@ handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Ev
 			defer delete(query, sb.allocator)
 			sb.query = query
 
+			fmt.printf("Search confirmed: %s\n", sb.query)
+
+			if len(sb.matches) > 0 {
+				delete(sb.matches, sb.allocator)
+			}
+
 			gap_buffer_clear(&sb.gap_buffer)
 			sb.caret_pos = 0
 			sb.is_visible = false
-			fmt.printf("Search confirmed: %s\n", sb.query)
 
 		case 8:
 			// BACKSPACE
@@ -232,6 +238,41 @@ render_search_bar :: proc(
 		_ = sdl.SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF)
 		_ = sdl.RenderFillRect(renderer, &caret_rect)
 	}
+
+	// Search matches
+	if sb.is_visible {
+		item_x := bar_x + 10.0
+		item_y := bar_y + bar_h + 8.0
+		max_visible := 10
+
+		_ = sdl.SetRenderDrawColor(renderer, 0x20, 0x20, 0x20, 0xFF)
+
+		for i in 0 ..< min(len(sb.matches), max_visible) {
+			m := sb.matches[i]
+
+			item_rect := sdl.FRect {
+				item_x - 5.0,
+				item_y,
+				bar_w - 20.0,
+				f32(text_renderer.line_height) + 4.0,
+			}
+			_ = sdl.SetRenderDrawColor(renderer, 0x20, 0x20, 0x20, 0xFF)
+			_ = sdl.RenderFillRect(renderer, &item_rect)
+
+			if i == sb.selected_index {
+				_ = sdl.SetRenderDrawColor(renderer, 0x40, 0x40, 0x90, 0xFF)
+				_ = sdl.RenderFillRect(renderer, &item_rect)
+				_ = sdl.SetRenderDrawColor(renderer, 0x20, 0x20, 0x20, 0xFF)
+			}
+
+			display_str := fmt.tprintf("%s (line %d): %s", m.path, m.index, m.line)
+			render_text(text_renderer, renderer, display_str, item_x, item_y, sb.allocator)
+			delete(display_str, sb.allocator)
+
+			item_y += f32(text_renderer.line_height) + 6.0
+		}
+	}
+
 }
 
 destroy_search_bar :: proc(sb: ^Search_Bar, allocator: mem.Allocator) {
