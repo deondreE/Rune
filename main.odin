@@ -45,6 +45,7 @@ main :: proc() {
 	}
 	defer sdl.DestroyRenderer(renderer)
 
+	// sdl.SetRenderVSync(renderer, 165)
 	fmt.println("Initializing editor...")
 	editor_state := editor.init_editor(window, renderer)
 	defer editor.destroy_editor(&editor_state)

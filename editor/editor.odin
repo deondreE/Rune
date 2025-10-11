@@ -528,6 +528,44 @@ delete_selection :: proc(editor: ^Editor) {
 	clear_selection(editor)
 }
 
+is_word_char :: proc(c: u8) -> bool {
+    return (c >= 'A' && c <= 'Z') ||
+           (c >= 'a' && c <= 'z') ||
+           (c >= '0' && c <= '9') ||
+           c == '_'  // optional
+}
+
+move_cursor_word_left	:: proc(editor: ^Editor) {
+	if editor.cursor_logical_pos == 0 {
+		return
+	}
+
+	data := get_text(&editor.gap_buffer, editor.allocator)
+
+	pos := editor.cursor_logical_pos - 1
+	for pos > 0 && !is_word_char(data[pos]) {
+		pos -= 1
+	}
+
+	editor.cursor_logical_pos = pos
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	update_cursor_position(editor)
+}
+
+move_cursor_word_right :: proc(editor: ^Editor) {
+	data := get_text(&editor.gap_buffer, editor.allocator)
+	total := len(data)
+	pos := editor.cursor_logical_pos
+
+	for pos < total && is_word_char(data[pos]) {
+		pos += 1
+	}
+
+	editor.cursor_logical_pos = pos
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	update_cursor_position(editor)
+}
+
 handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	if handle_search_bar_event(&editor.search_bar, editor, event) {
 		return
@@ -575,6 +613,14 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			case 'b':
 				// CTRL-B -- FileExplorer
 				editor.file_explorer.is_visible = !editor.file_explorer.is_visible
+				return
+			case 1073741903:
+				// Right Arrow jump to front of word.
+				move_cursor_word_right(editor)
+				return
+			case 1073741904:
+				// Left arrow jump to end of word.
+				move_cursor_word_left(editor)
 				return
 			}
 		}
