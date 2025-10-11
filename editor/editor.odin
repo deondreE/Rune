@@ -329,7 +329,6 @@ render :: proc(editor: ^Editor) {
 		window_w,
 		window_h,
 	)
-
 	// Editor file explorer.
 	if editor.file_explorer.is_visible {
 		render_file_explorer(&editor.file_explorer, editor.renderer)
@@ -582,8 +581,9 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 
 		switch event.key.key {
 		case 27:
-		case 9:
-			insert_char(editor, '\t')
+		case 9: // Tab 
+			// TODO: replace '\t' with some tab_size value. 
+			insert_char(editor, '\r')
 		case 13:
 			// enter
 			insert_char(editor, '\n')

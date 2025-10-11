@@ -353,6 +353,14 @@ get_text_segment :: proc(
 	return string(result)
 }
 
+gap_buffer_clear :: proc(gb: ^Gap_Buffer) {
+    gb.gap_start = 0
+    gb.gap_end   = gb.capacity
+    // Properly clear the dynamic array
+    clear(&gb.line_starts)
+    append(&gb.line_starts, 0)
+}
+
 get_line_number :: proc(gb: ^Gap_Buffer, logical_pos: int) -> int {
 	for i := len(gb.line_starts) - 1; i >= 0; i -= 1 {
 		if logical_pos >= gb.line_starts[i] {

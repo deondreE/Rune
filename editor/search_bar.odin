@@ -3,6 +3,10 @@ package editor
 import "core:fmt"
 import "core:math"
 import "core:mem"
+import "core:os"
+import "core:path/filepath"
+import "core:slice"
+import "core:strings"
 import "core:unicode/utf8"
 import sdl "vendor:sdl3"
 
@@ -10,12 +14,99 @@ Search_Bar :: struct {
 	is_visible: bool,
 	caret_pos:  int,
 	gap_buffer: Gap_Buffer,
+	query:      string,
+	allocator:  mem.Allocator,
+}
+
+File_Match :: struct {
+	path:  string,
+	line:  string,
+	index: int,
+}
+
+line_contains :: proc(line, query: string) -> bool {
+	return strings.contains(strings.to_lower(line), strings.to_lower(query))
+}
+
+search_files_in_dir :: proc(
+	dir_path: string,
+	query: string,
+	allocator: mem.Allocator,
+) -> []File_Match {
+	matches: [dynamic]File_Match
+	if len(query) == 0 {
+		return matches[:]
+	}
+	handle, ok := os.open(dir_path, os.O_RDONLY)
+	if ok != os.ERROR_NONE {
+		fmt.eprintf("Cannot open directory: %s\n", dir_path)
+		return matches[:]
+	}
+	defer os.close(handle)
+
+	file_infos, read_err := os.read_dir(handle, -1, allocator)
+	if read_err != os.ERROR_NONE {
+		fmt.eprintf("Cannot read directory: %s\n", dir_path)
+		return matches[:]
+	}
+	defer delete(file_infos, allocator)
+
+	slice.sort_by(file_infos, proc(a, b: os.File_Info) -> bool {
+		if a.is_dir != b.is_dir {
+			return a.is_dir
+		}
+		return a.name < b.name
+	})
+
+	for info in file_infos {
+		if len(info.name) > 0 && info.name[0] == '.' {
+			continue
+		}
+
+		full_path := filepath.join({dir_path, info.name}, allocator)
+		defer delete(full_path, allocator)
+
+		if info.is_dir {
+			sub_matches := search_files_in_dir(full_path, query, allocator)
+
+			for m in sub_matches {
+				append(&matches, m)
+			}
+			delete(sub_matches, allocator)
+			continue
+		}
+
+		file_bytes, ok := os.read_entire_file_from_filename(full_path, allocator)
+		if !ok {
+			continue
+		}
+
+		file_data := string(file_bytes)
+		lines := strings.split(file_data, "\n")
+
+		for l, i in lines {
+			if line_contains(l, query) {
+				fm := File_Match {
+					path  = strings.clone(full_path, allocator),
+					line  = strings.clone(l, allocator),
+					index = i,
+				}
+				append(&matches, fm)
+			}
+		}
+
+		delete(file_bytes, allocator)
+		delete(lines, allocator)
+	}
+
+	return matches[:]
 }
 
 init_search_bar :: proc(allocator: mem.Allocator) -> Search_Bar {
 	sb: Search_Bar
 	sb.gap_buffer = init_gap_buffer(allocator)
 	sb.is_visible = false
+	sb.allocator = allocator
 	sb.caret_pos = 0
 	return sb
 }
@@ -56,11 +147,16 @@ handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Ev
 				&sb.gap_buffer,
 				0,
 				current_length(&sb.gap_buffer),
-				editor.allocator,
+				sb.allocator,
 			)
-			defer delete(query, editor.allocator)
-			fmt.printf("Search confirmed: %s\n", query)
+			defer delete(query, sb.allocator)
+			sb.query = query
+
+			gap_buffer_clear(&sb.gap_buffer)
+			sb.caret_pos = 0
 			sb.is_visible = false
+			fmt.printf("Search confirmed: %s\n", sb.query)
+
 		case 8:
 			// BACKSPACE
 			handle_backspace_search(sb)
@@ -108,9 +204,9 @@ render_search_bar :: proc(
 		&sb.gap_buffer,
 		0,
 		current_length(&sb.gap_buffer),
-		context.allocator,
+		sb.allocator,
 	)
-	defer delete(search_text, context.allocator)
+	defer delete(search_text, sb.allocator)
 
 	// Draw the text
 	render_text(
@@ -119,7 +215,7 @@ render_search_bar :: proc(
 		search_text,
 		bar_x + 10.0,
 		bar_y + (bar_h - f32(text_renderer.line_height)) / 2.0,
-		context.allocator,
+		sb.allocator,
 	)
 
 	// Draw caret
