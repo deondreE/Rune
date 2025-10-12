@@ -736,8 +736,8 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		}
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT
-
-		if event.key.mod == sdl.KMOD_LCTRL {
+		fmt.println("%v", event.key.mod)
+		if event.key.mod == sdl.KMOD_LCTRL || event.key.mod == sdl.KMOD_LALT {
 			switch event.key.key {
 			case 'p':
 				// CTRL-P -- Search
@@ -771,7 +771,8 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			case 'i':
 				prototype_run()
 				return
-			case ',': // ','
+			case ',':
+				// ','	
 				// TODO: render settings file here.
 				load_settings_file(editor)
 				return
