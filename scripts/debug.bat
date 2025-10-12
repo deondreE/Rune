@@ -1,0 +1,1 @@
+C:\Users\deond\Downloads\odin\dist\odin.exe build . -debug
