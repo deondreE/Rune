@@ -771,6 +771,10 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			case 'i':
 				prototype_run()
 				return
+			case ',': // ','
+				// TODO: render settings file here.
+				load_settings_file(editor)
+				return
 			case 1073741903:
 				// Right Arrow jump to front of word.
 				move_cursor_word_right(editor)
