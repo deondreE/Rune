@@ -626,6 +626,9 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 				// CTRL-B -- FileExplorer
 				editor.file_explorer.is_visible = !editor.file_explorer.is_visible
 				return
+			case 'i':
+				prototype_run();
+				return
 			case 1073741903:
 				// Right Arrow jump to front of word.
 				move_cursor_word_right(editor)
