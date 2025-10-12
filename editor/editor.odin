@@ -742,8 +742,8 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			}
 		} else {
 			editor.has_selection = false
-            editor.selection_start = editor.cursor_logical_pos
-            editor.selection_end = editor.cursor_logical_pos
+			editor.selection_start = editor.cursor_logical_pos
+			editor.selection_end = editor.cursor_logical_pos
 		}
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT
@@ -888,4 +888,34 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			editor.cursor_logical_pos,
 		)
 	}
+}
+
+
+load_text_into_editor :: proc(editor: ^Editor, text: string) {
+    // Clear old buffer
+    gap_buffer_clear(&editor.gap_buffer)
+
+    // Parameters
+    chunk_size := 64 * 1024 // 64 KB chunks (tune this to your use case)
+    total_len  := len(text)
+    offset     := 0
+
+    for offset < total_len {
+        remaining := total_len - offset
+        size := math.min(chunk_size, remaining)
+
+        // Extract chunk slice
+        chunk := text[offset : offset+size]
+        bytes := transmute([]u8)chunk
+
+        // Insert the chunk into the buffer
+        insert_bytes(&editor.gap_buffer, bytes, editor.allocator)
+
+        offset += size
+    }
+
+    // After full load, reset gap position and cursor
+    editor.cursor_logical_pos = 0
+    move_gap(&editor.gap_buffer, 0)
+    update_cursor_position(editor)
 }

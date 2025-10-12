@@ -293,6 +293,23 @@ handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Ev
 				selected := sb.matches[sb.selected_index]
 				fmt.printf("Opening: %s at line %d\n", selected.path, selected.index)
 				// TODO: open found file in editor.
+				if entry, exists := sb.file_cache[selected.path]; exists {
+					load_text_into_editor(editor, entry.content)
+				} else {
+					 text, ok := os.read_entire_file_from_filename(selected.path, sb.allocator)
+					 if ok {
+					 	load_text_into_editor(editor, string(text))
+					 	delete(text, sb.allocator)
+					 } else {
+					 	fmt.printf("Couldn't load %s\n", selected.path)
+					 }
+				}
+
+				target_pos :=
+            line_col_to_logical_pos(&editor.gap_buffer, selected.index - 1, 0)
+        editor.cursor_logical_pos = target_pos
+        move_gap(&editor.gap_buffer, target_pos)
+        update_cursor_position(editor)
 			}
 			gap_buffer_clear(&sb.gap_buffer)
 			sb.caret_pos = 0

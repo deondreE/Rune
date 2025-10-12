@@ -308,7 +308,6 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> boo
 				mouse_y >= fe.y && mouse_y <= fe.y + f32(fe.visible_height * int(fe.item_height))
 
 			if in_x_bounds && in_y_bounds {
-        fmt.printf("test")
 				relative_y := mouse_y - fe.y
 				clicked_idx := fe.scroll_offset + int(relative_y / f32(fe.item_height))
 
@@ -318,8 +317,6 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> boo
 
 					if entry.is_dir {
 						toggle_directory(fe, clicked_idx)
-					} else {
-						return true
 					}
 				}
 			}
