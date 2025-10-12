@@ -6,8 +6,8 @@ import "core:mem"
 import "core:strings"
 import "core:sync"
 import "core:unicode/utf8"
-import sdl "vendor:sdl3"
 import lsp "lsp"
+import sdl "vendor:sdl3"
 
 Editor :: struct {
 	allocator:           mem.Allocator,
@@ -26,8 +26,8 @@ Editor :: struct {
 	search_bar:          Search_Bar,
 	context_menu:        Context_Menu,
 	menu_bar:            Menu_Bar,
-	status_bar: 		 Status_Bar,
-	lsp:								 ^lsp.LSP_Thread,
+	status_bar:          Status_Bar,
+	lsp:                 ^lsp.LSP_Thread,
 	selection_start:     int,
 	selection_end:       int,
 	has_selection:       bool,
@@ -460,13 +460,16 @@ render :: proc(editor: ^Editor) {
 	cursor_y :=
 		menu_offset_y + f32(editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y)
 	if editor.cursor_line_idx < len(lines) && len(lines) > 0 {
+		original_line := get_line(&editor.gap_buffer, editor.cursor_line_idx, editor.allocator)
+		defer delete(original_line, editor.allocator)
+
 		current_line := lines[editor.cursor_line_idx]
 		cursor_pos_in_line := min(editor.cursor_col_idx, len(current_line))
 
 		if cursor_pos_in_line > 0 {
 			text_before_cursor := current_line[:cursor_pos_in_line]
 			text_width := measure_text_width(&editor.text_renderer, text_before_cursor)
-			cursor_x += int(text_width) // Just add the measured width
+			cursor_x += int(text_width) 
 		}
 	}
 
@@ -484,10 +487,17 @@ render :: proc(editor: ^Editor) {
 		_ = sdl.RenderFillRect(editor.renderer, &cursor_rect)
 	}
 
-	render_status_bar(&editor.status_bar, &editor.text_renderer, editor.renderer, int(window_w), int(window_h), editor.allocator)
+	render_status_bar(
+		&editor.status_bar,
+		&editor.text_renderer,
+		editor.renderer,
+		int(window_w),
+		int(window_h),
+		editor.allocator,
+	)
 	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
 	render_menu_bar(&editor.menu_bar, editor.renderer)
-	
+
 	sdl.RenderPresent(editor.renderer)
 }
 
@@ -497,11 +507,12 @@ handle_backspace :: proc(editor: ^Editor) {
 	}
 
 	if editor.cursor_logical_pos > 0 {
+		bytes_to_delete: int
 		prev_pos := get_prev_utf8_char_start_byte_offset(
 			&editor.gap_buffer,
 			editor.cursor_logical_pos,
 		)
-		bytes_to_delete := editor.cursor_logical_pos - prev_pos
+		bytes_to_delete = editor.cursor_logical_pos - prev_pos
 
 		delete_bytes_left(&editor.gap_buffer, bytes_to_delete)
 		editor.cursor_logical_pos = prev_pos
@@ -533,13 +544,10 @@ delete_selection :: proc(editor: ^Editor) {
 }
 
 is_word_char :: proc(c: u8) -> bool {
-    return (c >= 'A' && c <= 'Z') ||
-           (c >= 'a' && c <= 'z') ||
-           (c >= '0' && c <= '9') ||
-           c == '_'  // optional
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' // optional
 }
 
-move_cursor_word_left	:: proc(editor: ^Editor) {
+move_cursor_word_left :: proc(editor: ^Editor) {
 	if editor.cursor_logical_pos == 0 {
 		return
 	}
@@ -631,9 +639,12 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 
 		switch event.key.key {
 		case 27:
-		case 9: // Tab 
-			// TODO: replace '\t' with some tab_size value. 
-			insert_char(editor, '\r')
+		case 9:
+			// Tab
+			// TODO: replace '\t' with some tab_size value.
+			insert_char(editor, '\t')
+			editor.cursor_logical_pos += editor.gap_buffer.tab_size
+			update_cursor_position(editor)
 		case 13:
 			// enter
 			insert_char(editor, '\n')

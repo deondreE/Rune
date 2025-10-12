@@ -14,6 +14,7 @@ Gap_Buffer :: struct {
 	gap_start:   int,
 	gap_end:     int,
 	capacity:    int,
+	tab_size:    int,
 	line_starts: [dynamic]int,
 	allocator:   mem.Allocator,
 }
@@ -36,6 +37,7 @@ init_gap_buffer :: proc(allocator: mem.Allocator = context.allocator) -> Gap_Buf
 	return Gap_Buffer {
 		buffer = buffer,
 		gap_start = 0,
+		tab_size = 2,
 		gap_end = len(buffer),
 		capacity = len(buffer),
 		line_starts = line_starts,
@@ -289,20 +291,24 @@ get_lines :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator)
 	}
 
 	lines := make([dynamic]string, allocator)
+	tab_replacement := strings.repeat(" ", gb.tab_size, allocator)
+	proccessed_text, alloc := strings.replace(text, "\t", tab_replacement, -1, allocator)
+	if alloc {
+		defer delete(proccessed_text, allocator)
+	}
 
 	line_start := 0
-	for i in 0 ..< len(text) {
-		char := rune(text[i])
+	for i in 0 ..< len(proccessed_text) {
+		char := rune(proccessed_text[i])
 		if char == '\n' {
-			line := text[line_start:i]
+			line := proccessed_text[line_start:i]
 			append(&lines, strings.clone(line, allocator))
 			line_start = i + 1
 		}
 	}
-
 	// Add the last line if it doesn't end with newline
-	if line_start < len(text) {
-		line := text[line_start:]
+	if line_start < len(proccessed_text) {
+		line := proccessed_text[line_start:]
 		append(&lines, strings.clone(line, allocator))
 	}
 
@@ -354,11 +360,11 @@ get_text_segment :: proc(
 }
 
 gap_buffer_clear :: proc(gb: ^Gap_Buffer) {
-    gb.gap_start = 0
-    gb.gap_end   = gb.capacity
-    // Properly clear the dynamic array
-    clear(&gb.line_starts)
-    append(&gb.line_starts, 0)
+	gb.gap_start = 0
+	gb.gap_end = gb.capacity
+	// Properly clear the dynamic array
+	clear(&gb.line_starts)
+	append(&gb.line_starts, 0)
 }
 
 get_line_number :: proc(gb: ^Gap_Buffer, logical_pos: int) -> int {
