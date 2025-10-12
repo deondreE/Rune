@@ -1,2 +1,5 @@
 *Rune
 Rune.dSYM
+*.pdb
+*.rdi
+*.exe

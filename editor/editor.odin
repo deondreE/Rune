@@ -350,6 +350,7 @@ render :: proc(editor: ^Editor) {
 
 	// Selection via, the ARROW KEYS.
 	if editor.has_selection && start_sel != end_sel {
+		r_color := sdl.Color{0x33, 0x66, 0xCC, 0x80}
 		_ = sdl.SetRenderDrawColor(editor.renderer, 0x33, 0x66, 0xCC, 0x80)
 
 		lines := get_lines(&editor.gap_buffer, editor.allocator)
@@ -378,13 +379,23 @@ render :: proc(editor: ^Editor) {
 			width_start := measure_text_width(&editor.text_renderer, line_text[:line_start_col])
 			width_end := measure_text_width(&editor.text_renderer, line_text[:line_end_col])
 
+			// TODO: switch to gpu rendering..
+
 			rect := sdl.FRect {
 				line_x + f32(width_start),
 				y,
 				f32(width_end - width_start),
 				f32(editor.line_height),
 			}
-			_ = sdl.RenderFillRect(editor.renderer, &rect)
+			to_render := rect_to_geometry(rect, r_color)
+			_ = sdl.RenderGeometry(
+				editor.renderer,
+				to_render.texture,
+				raw_data(to_render.vertices),
+				i32(len(to_render.vertices)),
+				raw_data(to_render.indices),
+				i32(len(to_render.indices)),
+			)
 		}
 	}
 
@@ -469,7 +480,7 @@ render :: proc(editor: ^Editor) {
 		if cursor_pos_in_line > 0 {
 			text_before_cursor := current_line[:cursor_pos_in_line]
 			text_width := measure_text_width(&editor.text_renderer, text_before_cursor)
-			cursor_x += int(text_width) 
+			cursor_x += int(text_width)
 		}
 	}
 
@@ -627,7 +638,7 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 				editor.file_explorer.is_visible = !editor.file_explorer.is_visible
 				return
 			case 'i':
-				prototype_run();
+				prototype_run()
 				return
 			case 1073741903:
 				// Right Arrow jump to front of word.
