@@ -1,13 +1,23 @@
 {
-  "version": "0.2.0",
-  "configurations": [
+	"version": "0.2.0",
+	"configurations": [
+		{
+			"type": "lldb",
+			"request": "launch",
+			"preLaunchTask": "Build",
+			"name": "Debug",
+			"program": "${workspaceFolder}/${workspaceFolderBasename}",
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
     {
-      "type": "lldb-dap",
-      "request": "launch",
-      "name": "Debug Odin",
-      "program": "${workspaceFolder}/debug_editor.exe",
-      "args": [],
-      "cwd": "${workspaceFolder}"
-    }
-  ]
+			"type": "cppvsdbg",
+			"request": "launch",
+			"preLaunchTask": "Build",
+			"name": "Debug",
+			"program": "${workspaceFolder}/${workspaceFolderBasename}",
+			"args": [],
+			"cwd": "${workspaceFolder}"
+		},
+	]
 }
