@@ -34,6 +34,9 @@ Editor :: struct {
 	mouse_down:          bool,
 	mouse_dragging:      bool,
 	_is_mouse_selecting: bool,
+	last_click_time:     u64,
+	last_click_pos:      int,
+	double_click_ms:     u64,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -225,7 +228,7 @@ insert_char :: proc(editor: ^Editor, r: rune) {
 	fmt.printf("insert_char called with rune: %d (char: '%c')\n", r, r)
 	if editor.has_selection {
 		// Maybe you don't want to just delete the selection here.
-		delete_selection(editor)	
+		delete_selection(editor)
 	}
 
 	temp_str := utf8.runes_to_string({r}, editor.allocator)
@@ -255,6 +258,7 @@ init_editor :: proc(
 		fmt.println("Failed to initialize text renderer")
 	}
 	editor.text_renderer = text_renderer
+	editor.double_click_ms = 300
 	editor.status_bar = init_status_bar()
 	editor.gap_buffer = init_gap_buffer(allocator)
 	editor.cursor_logical_pos = 0
@@ -617,7 +621,7 @@ screen_to_logical_pos :: proc(editor: ^Editor, x: int, y: int) -> int {
 
 	// find which character X lands on
 	for i in 0 ..< len(line_text) {
-		t_input := string(line_text[:])
+		t_input := string(line_text[:i + 1])
 		w := measure_text_width(&editor.text_renderer, t_input)
 		if w > local_x {
 			col_index = i
@@ -627,6 +631,33 @@ screen_to_logical_pos :: proc(editor: ^Editor, x: int, y: int) -> int {
 	}
 
 	return line_col_to_logical_pos(&editor.gap_buffer, line_index, col_index)
+}
+
+select_word_at_pos :: proc(editor: ^Editor, pos: int) {
+	data := get_text(&editor.gap_buffer, editor.allocator)
+	if len(data) == 0 {
+		return
+	}
+
+	start := pos
+	end := pos
+
+	// move left until non‑word
+	for start > 0 && is_word_char(data[start - 1]) {
+		start -= 1
+	}
+	// move right until non‑word
+	for end < len(data) && is_word_char(data[end]) {
+		end += 1
+	}
+
+	editor.selection_start = start
+	editor.selection_end = end
+	editor.cursor_logical_pos = end
+	editor.has_selection = true
+
+	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	update_cursor_position(editor)
 }
 
 handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
@@ -646,19 +677,26 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	#partial switch event.type {
 	case .MOUSE_BUTTON_DOWN:
 		if event.button.button == sdl.BUTTON_LEFT {
+			now := sdl.GetTicks()
 			mouse_x := event.button.x
 			mouse_y := event.button.y
 
 			pos := screen_to_logical_pos(editor, int(mouse_x), int(mouse_y))
 
-			editor.cursor_logical_pos = pos
-			editor.selection_start = pos
-			editor.selection_end = pos
-			editor.has_selection = false
-			editor.mouse_down = true
-			editor.mouse_dragging = false
-			move_gap(&editor.gap_buffer, pos)
-			update_cursor_position(editor)
+			if (now - editor.last_click_time) <= editor.double_click_ms &&
+			   abs(pos - editor.last_click_pos) < 2 { 	// small threshold
+				select_word_at_pos(editor, pos)
+			} else {
+				// Record click position and allow dragging
+				editor.cursor_logical_pos = pos
+				editor.selection_start = pos
+				editor.selection_end = pos
+				editor.has_selection = false
+				editor.mouse_down = true
+			}
+
+			editor.last_click_time = now
+			editor.last_click_pos = pos
 		}
 	case .MOUSE_MOTION:
 		if editor.mouse_down {
@@ -697,12 +735,15 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		if event.button.button == sdl.BUTTON_LEFT {
 			editor.mouse_down = false
 			editor.mouse_dragging = false
-			clear_selection(editor)
 			if editor.selection_start == editor.selection_end {
 				editor.has_selection = false
 			} else {
 				editor.has_selection = true
 			}
+		} else {
+			editor.has_selection = false
+            editor.selection_start = editor.cursor_logical_pos
+            editor.selection_end = editor.cursor_logical_pos
 		}
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT
