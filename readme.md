@@ -13,6 +13,7 @@ Speed is the number one priority as well as keeping the bundle size pretty small
 ## Install steps
 
 MacOS
+
 `brew install odin SDL3 SDL3_ttf SDL3_image`
 
 build
