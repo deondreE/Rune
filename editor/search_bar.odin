@@ -140,7 +140,7 @@ search_files_in_dir_fast :: proc(
 	// Process files first (they're more likely to have matches)
 	files: [dynamic]os.File_Info
 	dirs: [dynamic]os.File_Info
-	
+
 	for info in file_infos {
 		if len(info.name) > 0 && info.name[0] == '.' {
 			continue
@@ -152,7 +152,7 @@ search_files_in_dir_fast :: proc(
 			append(&files, info)
 		}
 	}
-	
+
 	// Search files in current directory first
 	for info in files {
 		if len(matches) >= sb.max_results {

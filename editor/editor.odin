@@ -26,6 +26,7 @@ Editor :: struct {
 	search_bar:          Search_Bar,
 	context_menu:        Context_Menu,
 	menu_bar:            Menu_Bar,
+	status_bar: 		 Status_Bar,
 	lsp:								 ^lsp.LSP_Thread,
 	selection_start:     int,
 	selection_end:       int,
@@ -251,6 +252,7 @@ init_editor :: proc(
 		fmt.println("Failed to initialize text renderer")
 	}
 	editor.text_renderer = text_renderer
+	editor.status_bar = init_status_bar()
 	editor.gap_buffer = init_gap_buffer(allocator)
 	editor.cursor_logical_pos = 0
 	editor.cursor_line_idx = 0
@@ -482,8 +484,10 @@ render :: proc(editor: ^Editor) {
 		_ = sdl.RenderFillRect(editor.renderer, &cursor_rect)
 	}
 
+	render_status_bar(&editor.status_bar, &editor.text_renderer, editor.renderer, int(window_w), int(window_h), editor.allocator)
 	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
 	render_menu_bar(&editor.menu_bar, editor.renderer)
+	
 	sdl.RenderPresent(editor.renderer)
 }
 
