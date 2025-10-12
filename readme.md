@@ -17,7 +17,7 @@ MacOS
 
 build
 
-odin run .
+`odin run .`
 
 > Rune is pre-Alpha software use at your own risk.
 
