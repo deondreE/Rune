@@ -13,8 +13,6 @@ Status_Bar :: struct {
 init_status_bar :: proc() -> Status_Bar {
   return Status_Bar {
     height = 25.0,
-  //   background_color = sdl.Color{0x40, 0x40, 0x40, 0xFF},
-  //   text_color = {0xFF, 0xFF, 0xFF, 0xFF},
   }
 }
 
