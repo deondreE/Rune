@@ -31,6 +31,8 @@ Editor :: struct {
 	selection_start:     int,
 	selection_end:       int,
 	has_selection:       bool,
+	mouse_down:          bool,
+	mouse_dragging:      bool,
 	_is_mouse_selecting: bool,
 }
 
@@ -222,7 +224,8 @@ move_cursor_right :: proc(editor: ^Editor) {
 insert_char :: proc(editor: ^Editor, r: rune) {
 	fmt.printf("insert_char called with rune: %d (char: '%c')\n", r, r)
 	if editor.has_selection {
-		delete_selection(editor)
+		// Maybe you don't want to just delete the selection here.
+		delete_selection(editor)	
 	}
 
 	temp_str := utf8.runes_to_string({r}, editor.allocator)
@@ -595,7 +598,39 @@ move_cursor_word_right :: proc(editor: ^Editor) {
 	update_cursor_position(editor)
 }
 
+screen_to_logical_pos :: proc(editor: ^Editor, x: int, y: int) -> int {
+	// Account for scroll + gutters
+	menu_offset_y := f32(editor.menu_bar.height) + 10
+	local_x := f32(x) + f32(editor.scroll_x) - 60
+	local_y := f32(y) + f32(editor.scroll_y) - menu_offset_y
+
+	lines := get_lines(&editor.gap_buffer, editor.allocator)
+	line_index := clamp(int(local_y / f32(editor.line_height)), 0, len(lines) - 1)
+	defer {
+		for line in lines {delete(line, editor.allocator)}
+		delete(lines, editor.allocator)
+	}
+
+	line_text := lines[line_index]
+	accum_width: f32 = 0
+	col_index := 0
+
+	// find which character X lands on
+	for i in 0 ..< len(line_text) {
+		t_input := string(line_text[:])
+		w := measure_text_width(&editor.text_renderer, t_input)
+		if w > local_x {
+			col_index = i
+			break
+		}
+		accum_width = w
+	}
+
+	return line_col_to_logical_pos(&editor.gap_buffer, line_index, col_index)
+}
+
 handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
+	menu_offset_y := f32(editor.menu_bar.height) + 10
 	if handle_search_bar_event(&editor.search_bar, editor, event) {
 		return
 	}
@@ -609,6 +644,66 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	}
 
 	#partial switch event.type {
+	case .MOUSE_BUTTON_DOWN:
+		if event.button.button == sdl.BUTTON_LEFT {
+			mouse_x := event.button.x
+			mouse_y := event.button.y
+
+			pos := screen_to_logical_pos(editor, int(mouse_x), int(mouse_y))
+
+			editor.cursor_logical_pos = pos
+			editor.selection_start = pos
+			editor.selection_end = pos
+			editor.has_selection = false
+			editor.mouse_down = true
+			editor.mouse_dragging = false
+			move_gap(&editor.gap_buffer, pos)
+			update_cursor_position(editor)
+		}
+	case .MOUSE_MOTION:
+		if editor.mouse_down {
+			mouse_x := event.motion.x
+			mouse_y := event.motion.y
+
+			view_height := 200
+			text_top := menu_offset_y
+			text_bottom := int(text_top) + int(view_height)
+
+			pos: int
+
+			if mouse_y < text_top {
+				pos = 0
+			} else if int(mouse_y) > int(text_bottom) {
+				lines := get_lines(&editor.gap_buffer, editor.allocator)
+				defer {
+					for line in lines {delete(line, editor.allocator)}
+					delete(lines, editor.allocator)
+				}
+				last_line := len(lines) - 1
+				last_col := len(lines[last_line])
+				pos = line_col_to_logical_pos(&editor.gap_buffer, last_line, last_col)
+			} else {
+				pos = screen_to_logical_pos(editor, int(mouse_x), int(mouse_y))
+			}
+
+			editor.selection_end = pos
+			editor.has_selection = true
+			editor.mouse_dragging = true
+			editor.cursor_logical_pos = pos
+			move_gap(&editor.gap_buffer, pos)
+			update_cursor_position(editor)
+		}
+	case .MOUSE_BUTTON_UP:
+		if event.button.button == sdl.BUTTON_LEFT {
+			editor.mouse_down = false
+			editor.mouse_dragging = false
+			clear_selection(editor)
+			if editor.selection_start == editor.selection_end {
+				editor.has_selection = false
+			} else {
+				editor.has_selection = true
+			}
+		}
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT
 
