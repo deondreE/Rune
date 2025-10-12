@@ -316,7 +316,209 @@ update :: proc(editor: ^Editor, dt: f64) {
 
 }
 
+// render :: proc(editor: ^Editor) {
+// 	_ = sdl.SetRenderDrawColor(editor.renderer, 0x1E, 0x1E, 0x1E, 0xFF)
+// 	_ = sdl.RenderClear(editor.renderer)
+
+// 	window_w: i32
+// 	window_h: i32
+// 	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
+
+// 	menu_offset_y := f32(editor.menu_bar.height) + 10
+// 	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
+// 	text_origin_x := f32(file_explorer_width)
+// 	editor_area_x := file_explorer_width
+// 	editor_area_width := f32(window_w) - file_explorer_width
+// 	start_sel, end_sel := selection_range(editor)
+
+// 	render_search_bar(
+// 		&editor.search_bar,
+// 		&editor.text_renderer,
+// 		editor.renderer,
+// 		window_w,
+// 		window_h,
+// 	)
+
+// 	// Editor file explorer.
+// 	if editor.file_explorer.is_visible {
+// 		render_file_explorer(&editor.file_explorer, editor.renderer)
+
+// 		// _ = sdl.SetRenderDrawBlendMode(editor.renderer, sdl.BlendMode.NONE)
+// 		_ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
+
+// 		divider_rect := sdl.FRect {
+// 			x = f32(editor.file_explorer.width) - 1.0, // align to panel’s right edge
+// 			y = menu_offset_y,
+// 			w = 1.0,
+// 			h = f32(window_h) - menu_offset_y,
+// 		}
+
+// 		_ = sdl.RenderFillRect(editor.renderer, &divider_rect)
+// 	}
+
+// 	// Selection via, the ARROW KEYS.
+// 	if editor.has_selection && start_sel != end_sel {
+// 		r_color := sdl.Color{0x33, 0x66, 0xCC, 0x80}
+// 		_ = sdl.SetRenderDrawColor(editor.renderer, 0x33, 0x66, 0xCC, 0x80)
+
+// 		lines := get_lines(&editor.gap_buffer, editor.allocator)
+// 		defer {
+// 			for line in lines {delete(line, editor.allocator)}
+// 			delete(lines, editor.allocator)
+// 		}
+
+// 		sel_line_start, sel_col_start := logical_pos_to_line_col(&editor.gap_buffer, start_sel)
+// 		sel_line_end, sel_col_end := logical_pos_to_line_col(&editor.gap_buffer, end_sel)
+
+// 		for i := sel_line_start; i <= sel_line_end && i < len(lines); i += 1 {
+// 			y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
+// 			line_x := f32(60) - f32(editor.scroll_x)
+// 			line_text := lines[i]
+
+// 			line_start_col := 0
+// 			line_end_col := len(line_text)
+
+// 			if i == sel_line_start {
+// 				line_start_col = sel_col_start
+// 			}
+// 			if i == sel_line_end {
+// 				line_end_col = sel_col_end
+// 			}
+// 			width_start := measure_text_width(&editor.text_renderer, line_text[:line_start_col])
+// 			width_end := measure_text_width(&editor.text_renderer, line_text[:line_end_col])
+
+// 			rect := sdl.FRect {
+// 				line_x + f32(width_start),
+// 				y,
+// 				f32(width_end - width_start),
+// 				f32(editor.line_height),
+// 			}
+// 			to_render := rect_to_geometry(rect, r_color)
+// 			_ = sdl.RenderGeometry(
+// 				editor.renderer,
+// 				to_render.texture,
+// 				raw_data(to_render.vertices),
+// 				i32(len(to_render.vertices)),
+// 				raw_data(to_render.indices),
+// 				i32(len(to_render.indices)),
+// 			)
+// 		}
+// 	}
+
+// 	// Core Editor text & Cursor
+// 	lines := get_lines(&editor.gap_buffer, editor.allocator)
+// 	defer {
+// 		for line in lines {
+// 			delete(line, editor.allocator)
+// 		}
+// 		delete(lines, editor.allocator)
+// 	}
+
+// 	gutter_width := f32(60) // Fixed width in pixels
+// 	text_area_x := text_origin_x + gutter_width
+
+// 	start_line := max(0, editor.scroll_y / int(editor.line_height))
+// 	visible_lines := int(f32(window_h) / f32(editor.line_height)) + 2
+// 	end_line := min(len(lines), start_line + 50)
+
+// 	// Lines, numbers, and text content
+// 	for i := start_line; i < end_line; i += 1 {
+// 		if i < len(lines) {
+// 			y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
+
+// 			if y < -f32(editor.line_height) || y > f32(window_h) {
+// 				continue
+// 			}
+
+// 			line_num := i + 1
+// 			line_num_str: string
+// 			if line_num < 10 {
+// 				line_num_str = fmt.aprintf("   %d ", line_num)
+// 			} else if line_num < 100 {
+// 				line_num_str = fmt.aprintf("  %d ", line_num)
+// 			} else if line_num < 1000 {
+// 				line_num_str = fmt.aprintf(" %d ", line_num)
+// 			} else {
+// 				line_num_str = fmt.aprintf("%d ", line_num)
+// 			}
+// 			defer delete(line_num_str, editor.allocator)
+
+// 			original_color := editor.text_renderer.color
+// 			if i == editor.cursor_line_idx {
+// 				editor.text_renderer.color = sdl.Color{0xFF, 0xFF, 0xFF, 0xFF}
+// 			} else {
+// 				editor.text_renderer.color = sdl.Color{0x60, 0x60, 0x60, 0xFF}
+// 			}
+
+// 			render_text(
+// 				&editor.text_renderer,
+// 				editor.renderer,
+// 				line_num_str,
+// 				editor_area_x + 5,
+// 				y,
+// 				editor.allocator,
+// 			)
+
+// 			editor.text_renderer.color = original_color
+
+// 			line_x := text_area_x - f32(editor.scroll_x)
+// 			render_text(
+// 				&editor.text_renderer,
+// 				editor.renderer,
+// 				lines[i],
+// 				line_x,
+// 				y,
+// 				editor.allocator,
+// 			)
+// 		}
+// 	}
+
+// 	cursor_x := int(gutter_width) - editor.scroll_x
+// 	cursor_y :=
+// 		menu_offset_y + f32(editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y)
+// 	if editor.cursor_line_idx < len(lines) && len(lines) > 0 {
+// 		original_line := get_line(&editor.gap_buffer, editor.cursor_line_idx, editor.allocator)
+// 		defer delete(original_line, editor.allocator)
+
+// 		current_line := lines[editor.cursor_line_idx]
+// 		cursor_pos_in_line := min(editor.cursor_col_idx, len(current_line))
+
+// 		if cursor_pos_in_line > 0 {
+// 			text_before_cursor := current_line[:cursor_pos_in_line]
+// 			text_width := measure_text_width(&editor.text_renderer, text_before_cursor)
+// 			cursor_x += int(text_width)
+// 		}
+// 	}
+
+// 	cursor_rect := sdl.FRect {
+// 		x = f32(cursor_x),
+// 		y = f32(cursor_y),
+// 		w = 2.0,
+// 		h = f32(editor.line_height),
+// 	}
+
+// 	blink_interval_ms :: 500
+// 	current_time_ms := sdl.GetTicks()
+// 	if (current_time_ms / u64(blink_interval_ms)) % 2 == 0 {
+// 		_ = sdl.SetRenderDrawColor(editor.renderer, 0xFF, 0xFF, 0xFF, 0xFF)
+// 		_ = sdl.RenderFillRect(editor.renderer, &cursor_rect)
+// 	}
+
+// 	render_status_bar(
+// 		&editor.status_bar,
+// 		&editor.text_renderer,
+// 		editor.renderer,
+// 		int(window_w),
+// 		int(window_h),
+// 		editor.allocator,
+// 	)
+// 	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
+// 	render_menu_bar(&editor.menu_bar, editor.renderer)
+
+// 	sdl.RenderPresent(editor.renderer)
+// }
 render :: proc(editor: ^Editor) {
+	// Clear background
 	_ = sdl.SetRenderDrawColor(editor.renderer, 0x1E, 0x1E, 0x1E, 0xFF)
 	_ = sdl.RenderClear(editor.renderer)
 
@@ -331,6 +533,7 @@ render :: proc(editor: ^Editor) {
 	editor_area_width := f32(window_w) - file_explorer_width
 	start_sel, end_sel := selection_range(editor)
 
+	// Search bar
 	render_search_bar(
 		&editor.search_bar,
 		&editor.text_renderer,
@@ -338,24 +541,22 @@ render :: proc(editor: ^Editor) {
 		window_w,
 		window_h,
 	)
-	// Editor file explorer.
+
+	// File Explorer
 	if editor.file_explorer.is_visible {
 		render_file_explorer(&editor.file_explorer, editor.renderer)
 
-		// _ = sdl.SetRenderDrawBlendMode(editor.renderer, sdl.BlendMode.NONE)
 		_ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
-
 		divider_rect := sdl.FRect {
-			x = f32(editor.file_explorer.width) - 1.0, // align to panel’s right edge
+			x = f32(editor.file_explorer.width) - 1.0,
 			y = menu_offset_y,
 			w = 1.0,
 			h = f32(window_h) - menu_offset_y,
 		}
-
 		_ = sdl.RenderFillRect(editor.renderer, &divider_rect)
 	}
 
-	// Selection via, the ARROW KEYS.
+	// Selection rendering
 	if editor.has_selection && start_sel != end_sel {
 		r_color := sdl.Color{0x33, 0x66, 0xCC, 0x80}
 		_ = sdl.SetRenderDrawColor(editor.renderer, 0x33, 0x66, 0xCC, 0x80)
@@ -371,18 +572,18 @@ render :: proc(editor: ^Editor) {
 
 		for i := sel_line_start; i <= sel_line_end && i < len(lines); i += 1 {
 			y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
+			if y < -f32(editor.line_height) || y > f32(window_h) { 	// skip off‑screen
+				continue
+			}
+
 			line_x := f32(60) - f32(editor.scroll_x)
 			line_text := lines[i]
 
 			line_start_col := 0
 			line_end_col := len(line_text)
+			if i == sel_line_start {line_start_col = sel_col_start}
+			if i == sel_line_end {line_end_col = sel_col_end}
 
-			if i == sel_line_start {
-				line_start_col = sel_col_start
-			}
-			if i == sel_line_end {
-				line_end_col = sel_col_end
-			}
 			width_start := measure_text_width(&editor.text_renderer, line_text[:line_start_col])
 			width_end := measure_text_width(&editor.text_renderer, line_text[:line_end_col])
 
@@ -392,6 +593,7 @@ render :: proc(editor: ^Editor) {
 				f32(width_end - width_start),
 				f32(editor.line_height),
 			}
+
 			to_render := rect_to_geometry(rect, r_color)
 			_ = sdl.RenderGeometry(
 				editor.renderer,
@@ -404,84 +606,72 @@ render :: proc(editor: ^Editor) {
 		}
 	}
 
-	// Core Editor text & Cursor
+	// Core Editor Text & Cursor
 	lines := get_lines(&editor.gap_buffer, editor.allocator)
 	defer {
-		for line in lines {
-			delete(line, editor.allocator)
-		}
+		for line in lines {delete(line, editor.allocator)}
 		delete(lines, editor.allocator)
 	}
 
-	gutter_width := f32(60) // Fixed width in pixels
+	gutter_width := f32(60)
 	text_area_x := text_origin_x + gutter_width
 
+	// Compute visible line window
 	start_line := max(0, editor.scroll_y / int(editor.line_height))
 	visible_lines := int(f32(window_h) / f32(editor.line_height)) + 2
-	end_line := min(len(lines), start_line + 50)
+	end_line := min(len(lines), start_line + visible_lines)
 
-	// Lines, numbers, and text content
 	for i := start_line; i < end_line; i += 1 {
-		if i < len(lines) {
-			y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
-
-			if y < -f32(editor.line_height) || y > f32(window_h) {
-				continue
-			}
-
-			line_num := i + 1
-			line_num_str: string
-			if line_num < 10 {
-				line_num_str = fmt.aprintf("   %d ", line_num)
-			} else if line_num < 100 {
-				line_num_str = fmt.aprintf("  %d ", line_num)
-			} else if line_num < 1000 {
-				line_num_str = fmt.aprintf(" %d ", line_num)
-			} else {
-				line_num_str = fmt.aprintf("%d ", line_num)
-			}
-			defer delete(line_num_str, editor.allocator)
-
-			original_color := editor.text_renderer.color
-			if i == editor.cursor_line_idx {
-				editor.text_renderer.color = sdl.Color{0xFF, 0xFF, 0xFF, 0xFF}
-			} else {
-				editor.text_renderer.color = sdl.Color{0x60, 0x60, 0x60, 0xFF}
-			}
-
-			render_text(
-				&editor.text_renderer,
-				editor.renderer,
-				line_num_str,
-				editor_area_x + 5,
-				y,
-				editor.allocator,
-			)
-
-			editor.text_renderer.color = original_color
-
-			line_x := text_area_x - f32(editor.scroll_x)
-			render_text(
-				&editor.text_renderer,
-				editor.renderer,
-				lines[i],
-				line_x,
-				y,
-				editor.allocator,
-			)
+		y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
+		if y < -f32(editor.line_height) || y > f32(window_h) {
+			continue
 		}
+
+		line_num := i + 1
+		line_num_str: string
+		if line_num < 10 {
+			line_num_str = fmt.aprintf(" %d", line_num)
+		} else if line_num < 100 {
+			line_num_str = fmt.aprintf(" %d", line_num)
+		} else if line_num < 1000 {
+			line_num_str = fmt.aprintf(" %d", line_num)
+		} else {
+			line_num_str = fmt.aprintf(" %d", line_num)
+		}
+		defer delete(line_num_str, editor.allocator)
+
+		original_color := editor.text_renderer.color
+		if i == editor.cursor_line_idx {
+			editor.text_renderer.color = sdl.Color{0xFF, 0xFF, 0xFF, 0xFF}
+		} else {
+			editor.text_renderer.color = sdl.Color{0x60, 0x60, 0x60, 0xFF}
+		}
+
+		render_text(
+			&editor.text_renderer,
+			editor.renderer,
+			line_num_str,
+			editor_area_x + 5,
+			y,
+			editor.allocator,
+		)
+		editor.text_renderer.color = original_color
+
+		line_x := text_area_x - f32(editor.scroll_x)
+		render_text(&editor.text_renderer, editor.renderer, lines[i], line_x, y, editor.allocator)
 	}
 
+	// Cursor
 	cursor_x := int(gutter_width) - editor.scroll_x
 	cursor_y :=
 		menu_offset_y + f32(editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y)
+
 	if editor.cursor_line_idx < len(lines) && len(lines) > 0 {
 		original_line := get_line(&editor.gap_buffer, editor.cursor_line_idx, editor.allocator)
 		defer delete(original_line, editor.allocator)
 
 		current_line := lines[editor.cursor_line_idx]
 		cursor_pos_in_line := min(editor.cursor_col_idx, len(current_line))
-
 		if cursor_pos_in_line > 0 {
 			text_before_cursor := current_line[:cursor_pos_in_line]
 			text_width := measure_text_width(&editor.text_renderer, text_before_cursor)
@@ -503,6 +693,7 @@ render :: proc(editor: ^Editor) {
 		_ = sdl.RenderFillRect(editor.renderer, &cursor_rect)
 	}
 
+	// Status bars, menus
 	render_status_bar(
 		&editor.status_bar,
 		&editor.text_renderer,
@@ -516,7 +707,6 @@ render :: proc(editor: ^Editor) {
 
 	sdl.RenderPresent(editor.renderer)
 }
-
 handle_backspace :: proc(editor: ^Editor) {
 	if editor.has_selection {
 		delete_selection(editor)
@@ -892,30 +1082,30 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 
 
 load_text_into_editor :: proc(editor: ^Editor, text: string) {
-    // Clear old buffer
-    gap_buffer_clear(&editor.gap_buffer)
+	// Clear old buffer
+	gap_buffer_clear(&editor.gap_buffer)
 
-    // Parameters
-    chunk_size := 64 * 1024 // 64 KB chunks (tune this to your use case)
-    total_len  := len(text)
-    offset     := 0
+	// Parameters
+	chunk_size := 64 * 1024 // 64 KB chunks (tune this to your use case)
+	total_len := len(text)
+	offset := 0
 
-    for offset < total_len {
-        remaining := total_len - offset
-        size := math.min(chunk_size, remaining)
+	for offset < total_len {
+		remaining := total_len - offset
+		size := math.min(chunk_size, remaining)
 
-        // Extract chunk slice
-        chunk := text[offset : offset+size]
-        bytes := transmute([]u8)chunk
+		// Extract chunk slice
+		chunk := text[offset:offset + size]
+		bytes := transmute([]u8)chunk
 
-        // Insert the chunk into the buffer
-        insert_bytes(&editor.gap_buffer, bytes, editor.allocator)
+		// Insert the chunk into the buffer
+		insert_bytes(&editor.gap_buffer, bytes, editor.allocator)
 
-        offset += size
-    }
+		offset += size
+	}
 
-    // After full load, reset gap position and cursor
-    editor.cursor_logical_pos = 0
-    move_gap(&editor.gap_buffer, 0)
-    update_cursor_position(editor)
+	// After full load, reset gap position and cursor
+	editor.cursor_logical_pos = 0
+	move_gap(&editor.gap_buffer, 0)
+	update_cursor_position(editor)
 }
