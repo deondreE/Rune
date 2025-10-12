@@ -253,7 +253,7 @@ init_editor :: proc(
 	editor.window = window
 	editor.renderer = renderer
 
-	text_renderer, ok := init_text_renderer("assets/fonts/MapleMono-Regular.ttf", 16, allocator)
+	text_renderer, ok := init_text_renderer("assets/fonts/MapleMono-NF-Regular.ttf", 16, allocator)
 	if !ok {
 		fmt.println("Failed to initialize text renderer")
 	}
@@ -664,6 +664,20 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	}
 
 	#partial switch event.type {
+	case .MOUSE_WHEEL: 
+		scroll_delta := int(event.wheel.y) * int(editor.line_height) 
+
+		editor.scroll_y -= int(scroll_delta)
+
+		lines := get_lines(&editor.gap_buffer, editor.allocator)
+		total_lines := len(lines)
+		defer {
+			for line in lines { delete(line, editor.allocator) }
+			delete(lines, editor.allocator)
+		}
+
+		max_scroll := max(0, total_lines * int(editor.line_height) - 400)
+		editor.scroll_y = clamp(editor.scroll_y, 0, max_scroll)
 	case .MOUSE_BUTTON_DOWN:
 		if event.button.button == sdl.BUTTON_LEFT {
 			now := sdl.GetTicks()
