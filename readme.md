@@ -15,6 +15,10 @@ Speed is the number one priority as well as keeping the bundle size pretty small
 MacOS
 `brew install odin SDL3 SDL3_ttf SDL3_image`
 
+build
+
+odin run .
+
 > Rune is pre-Alpha software use at your own risk.
 
 Rune will run the [LSP Protocol](https://microsoft.github.io/language-server-protocol/).
