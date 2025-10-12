@@ -379,8 +379,6 @@ render :: proc(editor: ^Editor) {
 			width_start := measure_text_width(&editor.text_renderer, line_text[:line_start_col])
 			width_end := measure_text_width(&editor.text_renderer, line_text[:line_end_col])
 
-			// TODO: switch to gpu rendering..
-
 			rect := sdl.FRect {
 				line_x + f32(width_start),
 				y,
@@ -698,6 +696,7 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 					editor.selection_start = old_pos
 					editor.has_selection = true
 				}
+				editor.selection_end = editor.cursor_logical_pos
 			} else {
 				clear_selection(editor)
 			}
