@@ -566,7 +566,11 @@ move_cursor_word_left :: proc(editor: ^Editor) {
 	data := get_text(&editor.gap_buffer, editor.allocator)
 
 	pos := editor.cursor_logical_pos - 1
-	for pos > 0 && !is_word_char(data[pos]) {
+	for pos > 0 && !is_word_char(data[pos - 1]) {
+		pos -= 1
+	}
+
+	for pos > 0 && is_word_char(data[pos - 1]) {
 		pos -= 1
 	}
 
@@ -579,6 +583,10 @@ move_cursor_word_right :: proc(editor: ^Editor) {
 	data := get_text(&editor.gap_buffer, editor.allocator)
 	total := len(data)
 	pos := editor.cursor_logical_pos
+
+	for pos < total && !is_word_char(data[pos]) {
+		pos += 1
+	}
 
 	for pos < total && is_word_char(data[pos]) {
 		pos += 1
