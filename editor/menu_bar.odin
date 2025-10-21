@@ -12,16 +12,20 @@ Top_Menu_Item :: struct {
 }
 
 Menu_Bar :: struct {
-	items:       [dynamic]Top_Menu_Item,
-	height:      i32,
-	background:  sdl.Color,
-	hover_index: int,
-	is_visible:  bool,
+	items:         [dynamic]Top_Menu_Item,
+	height:        i32,
+	background:    sdl.Color,
+	hover_index:   int,
+	is_visible:    bool,
 	text_renderer: Text_Renderer,
-	allocator:   mem.Allocator,
+	allocator:     mem.Allocator,
 }
 
-init_menu_bar :: proc(allocator: mem.Allocator, font_path: string = "assets/fonts/MapleMono-Regular.ttf", font_size: f32 = 10) -> Menu_Bar {
+init_menu_bar :: proc(
+	allocator: mem.Allocator,
+	font_path: string = "assets/fonts/MapleMono-Regular.ttf",
+	font_size: f32 = 10,
+) -> Menu_Bar {
 	bar: Menu_Bar
 	bar.items = make([dynamic]Top_Menu_Item, allocator)
 	bar.height = 28
@@ -60,61 +64,61 @@ render_menu_bar :: proc(bar: ^Menu_Bar, renderer: ^sdl.Renderer) {
 	_ = sdl.RenderFillRect(renderer, &rect)
 
 	x_offset: f32 = 10
- for item, idx in bar.items {
-      text_x := x_offset + 6
-      text_y := (f32(bar.height) - f32(bar.text_renderer.line_height)) / 2.0
+	for item, idx in bar.items {
+		text_x := x_offset + 6
+		text_y := (f32(bar.height) - f32(bar.text_renderer.line_height)) / 2.0
 
-      // Hover highlight
-      if idx == bar.hover_index {
-          h_rect := sdl.FRect{x_offset, 0, item.width, f32(bar.height)}
-          _ = sdl.SetRenderDrawColor(renderer, 0x50, 0x50, 0x70, 0xFF)
-          _ = sdl.RenderFillRect(renderer, &h_rect)
-      }
+		// Hover highlight
+		if idx == bar.hover_index {
+			h_rect := sdl.FRect{x_offset, 0, item.width, f32(bar.height)}
+			_ = sdl.SetRenderDrawColor(renderer, 0x50, 0x50, 0x70, 0xFF)
+			_ = sdl.RenderFillRect(renderer, &h_rect)
+		}
 
-      // Draw menu label
-      render_text(&bar.text_renderer, renderer, item.label, text_x, text_y, bar.allocator)
-      x_offset += item.width
-  }
+		// Draw menu label
+		render_text(&bar.text_renderer, renderer, item.label, text_x, text_y, bar.allocator)
+		x_offset += item.width
+	}
 
-  _ = sdl.SetRenderDrawColor(renderer, 0x45, 0x45, 0x45, 0xFF)
-    line_rect := sdl.FRect{0, f32(bar.height - 1), 9999, 1}
-    _ = sdl.RenderFillRect(renderer, &line_rect)
+	_ = sdl.SetRenderDrawColor(renderer, 0x45, 0x45, 0x45, 0xFF)
+	line_rect := sdl.FRect{0, f32(bar.height - 1), 9999, 1}
+	_ = sdl.RenderFillRect(renderer, &line_rect)
 }
 
 handle_menu_bar_event :: proc(bar: ^Menu_Bar, event: ^sdl.Event) -> bool {
-	if !bar.is_visible { return false }
+	if !bar.is_visible {return false}
 
-	#partial switch event.type { 
-		case sdl.EventType.MOUSE_MOTION:
-			mouse_x := f32(event.motion.x)
-			mouse_y := f32(event.motion.y)
+	#partial switch event.type {
+	case sdl.EventType.MOUSE_MOTION:
+		mouse_x := f32(event.motion.x)
+		mouse_y := f32(event.motion.y)
+		if mouse_y < f32(bar.height) {
+			x_offset: f32 = 10
+			for it, i in bar.items {
+				if mouse_x >= x_offset && mouse_x <= x_offset + it.width {
+					bar.hover_index = i
+					break
+				}
+				bar.hover_index = -1
+				x_offset += it.width
+			}
+		} else {
+			bar.hover_index = -1
+		}
+	case sdl.EventType.MOUSE_BUTTON_DOWN:
+		if event.button.button == sdl.BUTTON_LEFT {
+			mouse_x := f32(event.button.x)
+			mouse_y := f32(event.button.y)
 			if mouse_y < f32(bar.height) {
 				x_offset: f32 = 10
 				for it, i in bar.items {
 					if mouse_x >= x_offset && mouse_x <= x_offset + it.width {
-						bar.hover_index = i 
-						break
+						return true
 					}
-					bar.hover_index = -1
 					x_offset += it.width
 				}
-			} else {
-				bar.hover_index = -1
 			}
-		case sdl.EventType.MOUSE_BUTTON_DOWN:
-			if event.button.button == sdl.BUTTON_LEFT {
-				mouse_x := f32(event.button.x)
-				mouse_y := f32(event.button.y)
-				if mouse_y < f32(bar.height) {
-					x_offset: f32 = 10
-					for it, i in bar.items {
-						if mouse_x >= x_offset && mouse_x <= x_offset + it.width {
-							return true
-						}
-						x_offset += it.width
-					}
-				}
-			}
+		}
 	}
 
 	return false

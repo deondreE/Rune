@@ -302,7 +302,7 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> boo
 			mouse_x := f32(event.button.x)
 			mouse_y := f32(event.button.y)
 
-      fmt.printf("Fe%d:SDLM:%d\n", fe.x, mouse_x)
+			fmt.printf("Fe%d:SDLM:%d\n", fe.x, mouse_x)
 			in_x_bounds := mouse_x >= fe.x && mouse_x <= fe.x + fe.width
 			in_y_bounds :=
 				mouse_y >= fe.y && mouse_y <= fe.y + f32(fe.visible_height * int(fe.item_height))

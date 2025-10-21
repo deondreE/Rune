@@ -3,3 +3,5 @@ Rune.dSYM
 *.pdb
 *.rdi
 *.exe
+
+*.idea

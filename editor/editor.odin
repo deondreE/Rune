@@ -4,7 +4,6 @@ import "core:fmt"
 import "core:math"
 import "core:mem"
 import "core:strings"
-import "core:sync"
 import "core:unicode/utf8"
 import lsp "lsp"
 import sdl "vendor:sdl3"
@@ -664,15 +663,15 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	}
 
 	#partial switch event.type {
-	case .MOUSE_WHEEL: 
-		scroll_delta := int(event.wheel.y) * int(editor.line_height) 
+	case .MOUSE_WHEEL:
+		scroll_delta := int(event.wheel.y) * int(editor.line_height)
 
 		editor.scroll_y -= int(scroll_delta)
 
 		lines := get_lines(&editor.gap_buffer, editor.allocator)
 		total_lines := len(lines)
 		defer {
-			for line in lines { delete(line, editor.allocator) }
+			for line in lines {delete(line, editor.allocator)}
 			delete(lines, editor.allocator)
 		}
 
