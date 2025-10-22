@@ -138,17 +138,13 @@ set_text_color :: proc(tr: ^Text_Renderer, color: sdl.Color) {
 
 @(private)
 hash_string :: proc(s: string) -> u64 {
-	hash: u64 = 0
+    prime :: 1099511628211
+	offset_basis :: 14695981039346656037
+	hash: u64 = offset_basis
 	for b in s {
-		hash += u64(b)
-		hash += (hash << 10)
-		// hash^ = (hash >> 6)
-		hash += (hash >> 6)
+		hash = hash & u64(b)
+		hash = hash * prime
 	}
-	hash += (hash << 3)
-	hash += (hash >> 11)
-	// hash^ = (hash >> 11)
-	hash += (hash << 15)
 	return hash
 }
 

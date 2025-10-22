@@ -61,3 +61,49 @@ rect_to_geometry :: proc(rect: sdl.FRect, color: sdl.Color) -> GeometryData {
 
 	return GeometryData{texture = nil, vertices = vertices, indices = indices}
 }
+
+text_to_geometry :: proc(
+    texture: ^sdl.Texture,
+    x, y, w, h: f32,
+    color: sdl.Color,
+) -> GeometryData {
+    vertices := make([]sdl.Vertex, 4)
+    indices := make([]i32, 6)
+    
+    fcolor := convert_color_to_fcolor(color)
+    
+    // Top-Left (0)
+	vertices[0] = sdl.Vertex {
+		position  = sdl.FPoint{x, y},
+		color     = fcolor,
+		tex_coord = sdl.FPoint{0, 0}, // Top-left of the texture
+	}
+	// Top-Right (1)
+	vertices[1] = sdl.Vertex {
+		position  = sdl.FPoint{x + w, y},
+		color     = fcolor,
+		tex_coord = sdl.FPoint{1, 0}, // Top-right of the texture
+	}
+	// Bottom-Right (2)
+	vertices[2] = sdl.Vertex {
+		position  = sdl.FPoint{x + w, y + h},
+		color     = fcolor,
+		tex_coord = sdl.FPoint{1, 1}, // Bottom-right of the texture
+	}
+	// Bottom-Left (3)
+	vertices[3] = sdl.Vertex {
+		position  = sdl.FPoint{x, y + h},
+		color     = fcolor,
+		tex_coord = sdl.FPoint{0, 1}, // Bottom-left of the texture
+	}
+   
+	indices[0] = 0
+	indices[1] = 1
+	indices[2] = 2
+   
+	indices[3] = 0
+	indices[4] = 2
+	indices[5] = 3
+   
+	return GeometryData{texture = texture, vertices = vertices, indices = indices}
+}

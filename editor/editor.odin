@@ -12,6 +12,7 @@ Editor :: struct {
 	allocator:           mem.Allocator,
 	window:              ^sdl.Window,
 	renderer:            ^sdl.Renderer,
+	batch_renderer:      Batch_Renderer,
 	text_renderer:       Text_Renderer,
 	gap_buffer:          Gap_Buffer,
 	cursor_logical_pos:  int,
@@ -261,6 +262,7 @@ init_editor :: proc(
 	editor.status_bar = init_status_bar()
 	editor.gap_buffer = init_gap_buffer(allocator)
 	editor.cursor_logical_pos = 0
+	editor.batch_renderer = init_batch_renderer(editor.renderer, allocator)
 	editor.cursor_line_idx = 0
 	editor.cursor_col_idx = 0
 	editor.line_height = text_renderer.line_height
@@ -308,6 +310,7 @@ destroy_editor :: proc(editor: ^Editor) {
 	destroy_gap_buffer(&editor.gap_buffer, editor.allocator)
 	destroy_file_explorer(&editor.file_explorer)
 	destroy_text_renderer(&editor.text_renderer)
+	destroy_batch_renderer(&editor.batch_renderer)
 	fmt.println("Editor destroyed.")
 }
 
@@ -331,6 +334,8 @@ render :: proc(editor: ^Editor) {
 	editor_area_width := f32(window_w) - file_explorer_width
 	start_sel, end_sel := selection_range(editor)
 
+	begin_frame(&editor.batch_renderer)
+	   
 	// Search bar
 	render_search_bar(
 		&editor.search_bar,
@@ -391,18 +396,25 @@ render :: proc(editor: ^Editor) {
 				f32(width_end - width_start),
 				f32(editor.line_height),
 			}
+			
+			sel_geo := rect_to_geometry(rect, r_color)
+			add_geometry_to_batch(&editor.batch_renderer, sel_geo)
 
-			to_render := rect_to_geometry(rect, r_color)
-			_ = sdl.RenderGeometry(
-				editor.renderer,
-				to_render.texture,
-				raw_data(to_render.vertices),
-				i32(len(to_render.vertices)),
-				raw_data(to_render.indices),
-				i32(len(to_render.indices)),
-			)
+			// to_render := rect_to_geometry(rect, r_color)
+			// _ = sdl.RenderGeometry(
+			// 	editor.renderer,
+			// 	to_render.texture,
+			// 	raw_data(to_render.vertices),
+			// 	i32(len(to_render.vertices)),
+			// 	raw_data(to_render.indices),
+			// 	i32(len(to_render.indices)),
+			// )
+			// delete(sel_geo.vertices, context.temp_allocator)
+			// delete(sel_geo.indices, context.temp_allocator)
 		}
 	}
+	
+	flush_batches(&editor.batch_renderer)
 
 	// Core Editor Text & Cursor
 	lines := get_lines(&editor.gap_buffer, editor.allocator)
@@ -505,6 +517,7 @@ render :: proc(editor: ^Editor) {
 
 	sdl.RenderPresent(editor.renderer)
 }
+
 handle_backspace :: proc(editor: ^Editor) {
 	if editor.has_selection {
 		delete_selection(editor)
@@ -896,7 +909,6 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		)
 	}
 }
-
 
 load_text_into_editor :: proc(editor: ^Editor, text: string) {
 	// Clear old buffer
