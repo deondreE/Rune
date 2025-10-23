@@ -310,7 +310,7 @@ Let's make some magic happen!`
 		allocator,
 	)
 	editor.context_menu = init_context_menu(allocator)
-	editor.menu_bar = init_menu_bar(allocator)
+	editor.menu_bar = init_menu_bar(allocator, "assets/fonts/MapleMono-NF-Regular.ttf", 10, renderer)
 	editor.lsp = lsp.init_lsp_thread("ols", editor.allocator)
 
 	fmt.println("Editor initialized.")
@@ -527,10 +527,12 @@ render :: proc(editor: ^Editor) {
 		editor.renderer,
 		int(window_w),
 		int(window_h),
+		editor.cursor_line_idx,
+		editor.cursor_col_idx,
 		editor.allocator,
 	)
 	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
-	render_menu_bar(&editor.menu_bar, editor.renderer)
+	render_menu_bar(&editor.menu_bar, editor.renderer, window_w)
 
 	sdl.RenderPresent(editor.renderer)
 }
@@ -690,6 +692,10 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 
 	if handle_search_bar_event(&editor.search_bar, editor, event) {
 		return
+	}
+	
+	if handle_menu_bar_event(&editor.menu_bar, event, editor.window) {
+	    return
 	}
 
 	#partial switch event.type {

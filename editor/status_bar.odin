@@ -20,6 +20,8 @@ render_status_bar :: proc(
 	renderer: ^sdl.Renderer,
 	window_w: int,
 	window_h: int,
+	current_line: int,
+	current_col: int,
 	allocator: mem.Allocator,
 ) {
 	// Calculate pos
@@ -49,9 +51,17 @@ render_status_bar :: proc(
 	text_width := measure_text_width(text_renderer, time_string)
 	text_x := f32(window_w) - text_width - 10.0 // 10px padding from right edge
 	text_y := bar_y + (stb.height - f32(text_renderer.line_height)) / 2.0
-
+	
 	_ = sdl.SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF)
 	render_text(text_renderer, renderer, time_string, text_x, text_y, allocator)
+
+	line_col_string := fmt.aprintf("Ln: %d, Col: %d", current_line+1, current_col+1)
+	
+	line_col_text_x := f32(10.0)
+	line_col_text_y := text_y
+	
+	_ = sdl.SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF)
+	render_text(text_renderer, renderer, line_col_string, line_col_text_x, line_col_text_y, )
 }
 
 get_status_bar_height :: proc(status_bar: ^Status_Bar) -> f32 {

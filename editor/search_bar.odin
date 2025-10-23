@@ -264,9 +264,11 @@ update_search_results :: proc(sb: ^Search_Bar) {
 		sb.matches = {}
 	}
 
-	sb.selected_index = 0
-	delete(sb.current_query, sb.allocator)
-	sb.current_query = strings.clone(query, sb.allocator)
+	if sb.current_query != query {
+	    sb.selected_index = 0
+		delete(sb.current_query,sb.allocator)
+		sb.current_query = strings.clone(query, sb.allocator)
+	}
 	sb.last_search_time = current_time
 }
 
@@ -307,7 +309,6 @@ handle_backspace_search :: proc(sb: ^Search_Bar) {
 set_selected_index :: proc(sb: ^Search_Bar, index: int) {
 	old_index := sb.selected_index
 	sb.selected_index = index
-
 }
 
 handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Event) -> bool {
@@ -355,7 +356,7 @@ handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Ev
 		case 1073741905:
 			// Down
 			if len(sb.matches) > 0 {
-				set_selected_index(sb, min(sb.selected_index + 1, len(sb.matches)))
+				set_selected_index(sb, min(sb.selected_index + 1, len(sb.matches) - 1))
 			}
 			return true
 

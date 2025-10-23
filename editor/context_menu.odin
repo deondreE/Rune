@@ -26,7 +26,7 @@ init_context_menu :: proc(allocator: mem.Allocator) -> Context_Menu {
   menu.items     = make([dynamic]Menu_Item, allocator)
   menu.width     = 180
   menu.item_height = 26
-  menu.is_visible = true
+  menu.is_visible = false
 
   append(&menu.items, Menu_Item{label = "Cut", id="edit.cut"})
   append(&menu.items, Menu_Item{label = "Copy", id="edit.copy"})
@@ -46,7 +46,7 @@ destroy_context_menu :: proc(menu: ^Context_Menu) {
   delete(menu.items)
 }
 
-show_context_menu :: proc(menu: ^Context_Menu, x: f32, y: f32, items: []Menu_Item) {
+show_context_menu :: proc(menu: ^Context_Menu, x: f32, y: f32) {
   clear(&menu.items)
   for it in menu.items {
     append(&menu.items, it)
