@@ -221,7 +221,7 @@ remove_directory_contents :: proc(fe: ^File_Explorer, dir_idx: int) {
 	}
 }
 
-render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer) {
+render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer, editor: ^Editor) {
 	if !fe.is_visible {return}
 	if len(fe.entries) == 0 {return}
 
@@ -231,7 +231,7 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer) {
 		w = fe.width,
 		h = f32(fe.visible_height) * f32(fe.item_height),
 	}
-	_ = sdl.SetRenderDrawColor(renderer, 0x25, 0x25, 0x25, 0xFF)
+	_ = sdl.SetRenderDrawColor(renderer, editor.theme.explorer_bg.r,editor.theme.explorer_bg.g,editor.theme.explorer_bg.b,editor.theme.explorer_bg.a)
 	_ = sdl.RenderFillRect(renderer, &bg_rect)
 	
 	clip_rect := sdl.Rect {
@@ -254,7 +254,7 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer) {
 				w = fe.width,
 				h = f32(fe.item_height),
 			}
-			_ = sdl.SetRenderDrawColor(renderer, 0x40, 0x40, 0x60, 0xFF)
+			_ = sdl.SetRenderDrawColor(renderer, editor.theme.explorer_select.r,editor.theme.explorer_select.g,editor.theme.explorer_select.b,editor.theme.explorer_select.a)
 			_ = sdl.RenderFillRect(renderer, &highlight)
 		}
 	}
@@ -272,9 +272,9 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer) {
 
 		filename_x := x + 25
 		if entry.is_dir {
-			fe.text_renderer.color = sdl.Color{0x80, 0xC0, 0xFF, 0xFF}
+			fe.text_renderer.color = editor.theme.explorer_dir
 		} else {
-			fe.text_renderer.color = sdl.Color{0xC0, 0xC0, 0xC0, 0xFF}
+			fe.text_renderer.color = editor.theme.explorer_text
 		}
 
 		render_text(&fe.text_renderer, renderer, entry.name, filename_x, y, fe.allocator)
@@ -282,7 +282,7 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer) {
 	fe.text_renderer.color = original_color
 
 	// 4. Border (optional, above background but below text feels fine too)
-	_ = sdl.SetRenderDrawColor(renderer, 0x40, 0x40, 0x40, 0xFF)
+	_ = sdl.SetRenderDrawColor(renderer, editor.theme.explorer_bg.r, editor.theme.explorer_bg.g, editor.theme.explorer_bg.b, editor.theme.explorer_bg.a)
 	_ = sdl.RenderRect(renderer, &bg_rect)
 	_ = sdl.SetRenderClipRect(renderer, nil)
 }
