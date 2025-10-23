@@ -18,6 +18,7 @@ render_status_bar :: proc(
 	stb: ^Status_Bar,
 	text_renderer: ^Text_Renderer,
 	renderer: ^sdl.Renderer,
+	editor: ^Editor,
 	window_w: int,
 	window_h: int,
 	current_line: int,
@@ -33,7 +34,7 @@ render_status_bar :: proc(
 		h = stb.height,
 	}
 
-	_ = sdl.SetRenderDrawColor(renderer, 0x40, 0x40, 0x40, 0xFF)
+	_ = sdl.SetRenderDrawColor(renderer, editor.theme.status_bg.r, editor.theme.status_bg.g, editor.theme.status_bg.b, editor.theme.status_bg.a)
 	_ = sdl.RenderFillRect(renderer, &bar_rect)
 
 	now := time.now()
@@ -52,7 +53,7 @@ render_status_bar :: proc(
 	text_x := f32(window_w) - text_width - 10.0 // 10px padding from right edge
 	text_y := bar_y + (stb.height - f32(text_renderer.line_height)) / 2.0
 	
-	_ = sdl.SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF)
+	_ = sdl.SetRenderDrawColor(renderer, editor.theme.status_text.r, editor.theme.status_text.g, editor.theme.status_text.b, editor.theme.status_text.a)
 	render_text(text_renderer, renderer, time_string, text_x, text_y, allocator)
 
 	line_col_string := fmt.aprintf("Ln: %d, Col: %d", current_line+1, current_col+1)
@@ -60,7 +61,7 @@ render_status_bar :: proc(
 	line_col_text_x := f32(10.0)
 	line_col_text_y := text_y
 	
-	_ = sdl.SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF)
+	_ = sdl.SetRenderDrawColor(renderer, editor.theme.status_text.r, editor.theme.status_text.g, editor.theme.status_text.b, editor.theme.status_text.a)
 	render_text(text_renderer, renderer, line_col_string, line_col_text_x, line_col_text_y, )
 }
 

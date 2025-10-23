@@ -23,6 +23,7 @@ Editor :: struct {
 	line_height:           i32,
 	char_width:            f32,
 	file_explorer:         File_Explorer,
+	theme: Theme,
 	search_bar:            Search_Bar,
 	context_menu:          Context_Menu,
 	menu_bar:              Menu_Bar,
@@ -253,7 +254,9 @@ init_editor :: proc(
 	editor.allocator = allocator
 	editor.window = window
 	editor.renderer = renderer
-
+	theme, _ := load_user_theme("assets/settings/theme.json", allocator)
+	editor.theme = theme
+	
 	text_renderer, ok := init_text_renderer("assets/fonts/MapleMono-NF-Regular.ttf", 16, allocator)
 	if !ok {
 		fmt.println("Failed to initialize text renderer")
@@ -310,7 +313,7 @@ Let's make some magic happen!`
 		allocator,
 	)
 	editor.context_menu = init_context_menu(allocator)
-	editor.menu_bar = init_menu_bar(allocator, "assets/fonts/MapleMono-NF-Regular.ttf", 10, renderer)
+	editor.menu_bar = init_menu_bar(allocator, "assets/fonts/MapleMono-NF-Regular.ttf", 10, renderer, &editor)
 	editor.lsp = lsp.init_lsp_thread("ols", editor.allocator)
 
 	fmt.println("Editor initialized.")
@@ -336,7 +339,7 @@ update :: proc(editor: ^Editor, dt: f64) {
 
 render :: proc(editor: ^Editor) {
 	// Clear background
-	_ = sdl.SetRenderDrawColor(editor.renderer, 0x1E, 0x1E, 0x1E, 0xFF)
+	_ = sdl.SetRenderDrawColor(editor.renderer, editor.theme.background.r,editor.theme.background.g,editor.theme.background.b,editor.theme.background.a)
 	_ = sdl.RenderClear(editor.renderer)
 
 	window_w: i32
@@ -357,13 +360,14 @@ render :: proc(editor: ^Editor) {
 		&editor.search_bar,
 		&editor.text_renderer,
 		editor.renderer,
+		editor,
 		window_w,
 		window_h,
 	)
 
 	// File Explorer
 	if editor.file_explorer.is_visible {
-		render_file_explorer(&editor.file_explorer, editor.renderer)
+		render_file_explorer(&editor.file_explorer, editor.renderer, editor)
 
 		_ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
 		divider_rect := sdl.FRect {
@@ -377,8 +381,8 @@ render :: proc(editor: ^Editor) {
 
 	// Selection rendering
 	if editor.has_selection && start_sel != end_sel {
-		r_color := sdl.Color{0x33, 0x66, 0xCC, 0x80}
-		_ = sdl.SetRenderDrawColor(editor.renderer, 0x33, 0x66, 0xCC, 0x80)
+		r_color := editor.theme.selection_bg
+		// _ = sdl.SetRenderDrawColor(editor.renderer, 0x33, 0x66, 0xCC, 0x80)
 
 		lines := get_lines(&editor.gap_buffer, editor.allocator)
 		defer {
@@ -469,9 +473,9 @@ render :: proc(editor: ^Editor) {
 
 		original_color := editor.text_renderer.color
 		if i == editor.cursor_line_idx {
-			editor.text_renderer.color = sdl.Color{0xFF, 0xFF, 0xFF, 0xFF}
+			editor.text_renderer.color = editor.theme.line_number_text
 		} else {
-			editor.text_renderer.color = sdl.Color{0x60, 0x60, 0x60, 0xFF}
+			editor.text_renderer.color = editor.theme.text
 		}
 
 		render_text(
@@ -525,6 +529,7 @@ render :: proc(editor: ^Editor) {
 		&editor.status_bar,
 		&editor.text_renderer,
 		editor.renderer,
+		editor,
 		int(window_w),
 		int(window_h),
 		editor.cursor_line_idx,

@@ -28,6 +28,7 @@ Menu_Bar :: struct {
 	
 	icon_texture: ^sdl.Texture,
 	window_title: string,
+	editor: ^Editor,
 }
 
 init_menu_bar :: proc(
@@ -35,11 +36,13 @@ init_menu_bar :: proc(
 	font_path: string = "assets/fonts/MapleMono-Regular.ttf",
 	font_size: f32 = 10,
 	renderer: ^sdl.Renderer,
+	editor: ^Editor, 
 ) -> Menu_Bar {
 	bar: Menu_Bar
 	bar.items = make([dynamic]Top_Menu_Item, allocator)
 	bar.height = 28
-	bar.background = sdl.Color{0x2C, 0x2C, 0x2C, 0xFF}
+	bar.editor = editor
+	bar.background = editor.theme.menu_bg
 	bar.hover_index = -1
 	bar.is_visible = true
 	bar.allocator = allocator
@@ -120,7 +123,9 @@ render_menu_bar :: proc(bar: ^Menu_Bar, renderer: ^sdl.Renderer, window_w: i32) 
 		// Hover highlight
 		if idx == bar.hover_index {
 			h_rect := sdl.FRect{x_offset, 0, item.width, f32(bar.height)}
-			_ = sdl.SetRenderDrawColor(renderer, 0x50, 0x50, 0x70, 0xFF)
+			// _ = sdl.SetRenderDrawColor(renderer, 0x50, 0x50, 0x70, 0xFF)
+			 _ = sdl.SetRenderDrawColor(renderer, bar.editor.theme.menu_hover.r,bar.editor.theme.menu_hover.g,bar.editor.theme.menu_hover.b,bar.editor.theme.menu_hover.a)
+				
 			_ = sdl.RenderFillRect(renderer, &h_rect)
 		}
 

@@ -389,6 +389,7 @@ render_search_bar :: proc(
 	sb: ^Search_Bar,
 	text_renderer: ^Text_Renderer,
 	renderer: ^sdl.Renderer,
+	editor: ^Editor,
 	window_w, window_h: i32,
 ) {
 	if !sb.is_visible {
@@ -404,10 +405,10 @@ render_search_bar :: proc(
 	bar_w := f32(window_w) - 2 * bar_x
 
 	// Background
-	_ = sdl.SetRenderDrawColor(renderer, 0x30, 0x30, 0x30, 0xFF)
+	_ = sdl.SetRenderDrawColor(renderer, editor.theme.sb_bg.r, editor.theme.sb_bg.g, editor.theme.sb_bg.b, editor.theme.sb_bg.a)
 	bar_rect := sdl.FRect{bar_x, bar_y, bar_w, bar_h}
 	_ = sdl.RenderFillRect(renderer, &bar_rect)
-
+	
 	// Outline
 	_ = sdl.SetRenderDrawColor(renderer, 0x80, 0x80, 0x80, 0xFF)
 	_ = sdl.RenderRect(renderer, &bar_rect)
@@ -444,7 +445,7 @@ render_search_bar :: proc(
 	blink_interval_ms :: 500
 	current_time_ms := sdl.GetTicks()
 	if (current_time_ms / u64(blink_interval_ms)) % 2 == 0 {
-		_ = sdl.SetRenderDrawColor(renderer, 0xFF, 0xFF, 0xFF, 0xFF)
+		_ = sdl.SetRenderDrawColor(renderer, editor.theme.cursor.r, editor.theme.cursor.g, editor.theme.cursor.b, editor.theme.cursor.a)
 		_ = sdl.RenderFillRect(renderer, &caret_rect)
 	}
 
@@ -465,7 +466,7 @@ render_search_bar :: proc(
 			}
 
 			if i == sb.selected_index {
-				_ = sdl.SetRenderDrawColor(renderer, 0x40, 0x40, 0x90, 0xFF)
+				_ = sdl.SetRenderDrawColor(renderer, editor.theme.sb_select.r, editor.theme.sb_select.g, editor.theme.sb_select.b, editor.theme.sb_select.a)
 				_ = sdl.RenderFillRect(renderer, &item_rect)
 			} else {
 				_ = sdl.SetRenderDrawColor(renderer, 0x20, 0x20, 0x20, 0xFF)
