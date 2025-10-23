@@ -9,34 +9,35 @@ import lsp "lsp"
 import sdl "vendor:sdl3"
 
 Editor :: struct {
-	allocator:           mem.Allocator,
-	window:              ^sdl.Window,
-	renderer:            ^sdl.Renderer,
-	batch_renderer:      Batch_Renderer,
-	text_renderer:       Text_Renderer,
-	gap_buffer:          Gap_Buffer,
-	cursor_logical_pos:  int,
-	cursor_line_idx:     int,
-	cursor_col_idx:      int,
-	scroll_x:            int,
-	scroll_y:            int,
-	line_height:         i32,
-	char_width:          f32,
-	file_explorer:       File_Explorer,
-	search_bar:          Search_Bar,
-	context_menu:        Context_Menu,
-	menu_bar:            Menu_Bar,
-	status_bar:          Status_Bar,
-	lsp:                 ^lsp.LSP_Thread,
-	selection_start:     int,
-	selection_end:       int,
-	has_selection:       bool,
-	mouse_down:          bool,
-	mouse_dragging:      bool,
-	_is_mouse_selecting: bool,
-	last_click_time:     u64,
-	last_click_pos:      int,
-	double_click_ms:     u64,
+	allocator:             mem.Allocator,
+	window:                ^sdl.Window,
+	renderer:              ^sdl.Renderer,
+	batch_renderer:        Batch_Renderer,
+	text_renderer:         Text_Renderer,
+	gap_buffer:            Gap_Buffer,
+	cursor_logical_pos:    int,
+	cursor_line_idx:       int,
+	cursor_col_idx:        int,
+	scroll_x:              int,
+	scroll_y:              int,
+	line_height:           i32,
+	char_width:            f32,
+	file_explorer:         File_Explorer,
+	search_bar:            Search_Bar,
+	context_menu:          Context_Menu,
+	menu_bar:              Menu_Bar,
+	status_bar:            Status_Bar,
+	lsp:                   ^lsp.LSP_Thread,
+	selection_start:       int,
+	selection_end:         int,
+	has_selection:         bool,
+	mouse_down:            bool,
+	mouse_dragging:        bool,
+	_is_mouse_selecting:   bool,
+	last_click_time:       u64,
+	last_click_pos:        int,
+	double_click_ms:       u64,
+	default_white_texture: ^sdl.Texture,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -275,6 +276,18 @@ This is your Odin code editor.
 Let's make some magic happen!`
 
 
+	white_surface := sdl.CreateSurface(1, 1, sdl.PixelFormat.RGBA32)
+	if white_surface == nil {
+		fmt.eprintln("Failed to create white surface:", sdl.GetError())
+	}
+	_ = sdl.FillSurfaceRect(white_surface, nil, 0xFFFFFFFF)
+
+	editor.default_white_texture = sdl.CreateTextureFromSurface(editor.renderer, white_surface)
+	if editor.default_white_texture == nil {
+		fmt.eprintln("Failed to create default white texture", sdl.GetError())
+	}
+	sdl.DestroySurface(white_surface)
+
 	insert_bytes(&editor.gap_buffer, transmute([]u8)initial_text, editor.allocator)
 
 	editor.cursor_logical_pos = current_length(&editor.gap_buffer)
@@ -311,6 +324,9 @@ destroy_editor :: proc(editor: ^Editor) {
 	destroy_file_explorer(&editor.file_explorer)
 	destroy_text_renderer(&editor.text_renderer)
 	destroy_batch_renderer(&editor.batch_renderer)
+	if editor.default_white_texture != nil {
+		sdl.DestroyTexture(editor.default_white_texture)
+	}
 	fmt.println("Editor destroyed.")
 }
 
@@ -335,7 +351,7 @@ render :: proc(editor: ^Editor) {
 	start_sel, end_sel := selection_range(editor)
 
 	begin_frame(&editor.batch_renderer)
-	   
+
 	// Search bar
 	render_search_bar(
 		&editor.search_bar,
@@ -396,24 +412,25 @@ render :: proc(editor: ^Editor) {
 				f32(width_end - width_start),
 				f32(editor.line_height),
 			}
-			
-			sel_geo := rect_to_geometry(rect, r_color)
-			add_geometry_to_batch(&editor.batch_renderer, sel_geo)
 
-			// to_render := rect_to_geometry(rect, r_color)
-			// _ = sdl.RenderGeometry(
-			// 	editor.renderer,
-			// 	to_render.texture,
-			// 	raw_data(to_render.vertices),
-			// 	i32(len(to_render.vertices)),
-			// 	raw_data(to_render.indices),
-			// 	i32(len(to_render.indices)),
-			// )
+			// sel_geo := rect_to_geometry(rect, r_color)
+
+
+			to_render := rect_to_geometry(rect, r_color)
+			// add_geometry_to_batch(&editor.batch_renderer, to_render)
+			_ = sdl.RenderGeometry(
+				editor.renderer,
+				to_render.texture,
+				raw_data(to_render.vertices),
+				i32(len(to_render.vertices)),
+				raw_data(to_render.indices),
+				i32(len(to_render.indices)),
+			)
 			// delete(sel_geo.vertices, context.temp_allocator)
 			// delete(sel_geo.indices, context.temp_allocator)
 		}
 	}
-	
+
 	flush_batches(&editor.batch_renderer)
 
 	// Core Editor Text & Cursor
@@ -712,6 +729,12 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 
 			editor.last_click_time = now
 			editor.last_click_pos = pos
+		}
+
+		if event.button.button == sdl.BUTTON_RIGHT {
+			fmt.println("Testing this thing")
+			show_context_menu(&editor.context_menu, f32(event.button.x), f32(event.button.y))
+			handle_context_menu_event(&editor.context_menu, event)
 		}
 	case .MOUSE_MOTION:
 		if editor.mouse_down {
