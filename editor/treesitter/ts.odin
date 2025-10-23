@@ -24,10 +24,19 @@ TSResult :: struct {
     root_sexpr: cstring,
 }
 
+Token :: struct {
+    start: u32,
+    end: u32,
+    kind: u16,
+    _pad: u16,
+}
+
 @(default_calling_convention="c")
 foreign tsgateway {
     ts_parse :: proc(source: cstring, lang_id: i32) -> TSResult ---
     ts_free_result :: proc(result: TSResult) ---
+    ts_get_tokens :: proc(source: cstring, lang: i32, out_tokens: ^[^]Token) -> int ---
+    ts_free_tokens :: proc(tokens: ^Token, len: int) ---
 }
 
 Treesitter :: struct {
@@ -41,6 +50,38 @@ Lang :: enum i32 {
     C = 1,
     Python = 2,
     Odin = 3,
+}
+
+// Return tokens slice and count; caller must later call ts_free_tokens.
+get_tokens_for_source :: proc(
+    source: string,
+    lang: Lang,
+    allocator: mem.Allocator,
+) -> ([]Token, int) {
+    c_src := strings.clone_to_cstring(source, allocator)
+    defer delete(c_src, allocator)
+
+    toks_ptr: [^]Token = nil
+    len := ts_get_tokens(c_src, i32(lang), &toks_ptr)
+    if len <= 0 || toks_ptr == nil {
+        return {}, 0
+    }
+
+    tokens := toks_ptr[:len]
+    return tokens, len
+}
+
+// Convenience scoped wrapper that automatically frees tokens.
+use_tokens :: proc(
+    source: string,
+    lang: Lang,
+    allocator: mem.Allocator,
+    body: proc(tokens: []Token),
+) {
+    tokens, count := get_tokens_for_source(source, lang, allocator)
+    if count == 0 { return }
+    defer ts_free_tokens(&tokens[0], count)
+    body(tokens)
 }
 
 // Detemines the lang from the filpath.
@@ -69,26 +110,26 @@ init :: proc(lang: Lang = Lang.Odin) -> Treesitter {
 }
 
 // Parses a source string.
-parse_source :: proc(ctx: ^Treesitter, source: string, allocator: mem.Allocator = context.allocator) -> string {
-    if len(ctx.ast_string) > 0 {
-        delete(ctx.ast_string, allocator)
+parse_source :: proc(ctx: ^Treesitter, source: string,
+                     allocator: mem.Allocator = context.allocator) -> string {
+    if len(ctx.ast_string) > 0 && ctx.ast_string != "(null)" {
+        delete(ctx.ast_string, context.allocator)
         ctx.ast_string = ""
     }
-    
-    c_src := strings.clone_to_cstring(source, allocator) 
+    ctx.ast_string = ""
+
+    c_src := strings.clone_to_cstring(source, allocator)
     defer delete(c_src, allocator)
-    
+
     result := ts_parse(c_src, i32(ctx.lang))
     defer ts_free_result(result)
-    
+
     if result.root_sexpr == nil {
         ctx.ast_string = "(null)"
         return ctx.ast_string
     }
-    
+
     ctx.ast_string = strings.clone_from_cstring(result.root_sexpr, allocator)
-    defer delete(ctx.ast_string, allocator)
-    
     return ctx.ast_string
 }
 

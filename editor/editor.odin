@@ -340,7 +340,7 @@ update_parse_tree :: proc(editor: ^Editor) {
     
     fmt.println("Tree-Sitter AST (first 200 chars):")
     if len(ast) > 200 {
-        fmt.println(ast[:200], "...")
+         fmt.println(ast[:200], "...")
     } else {
         fmt.println(ast)
     }
@@ -361,6 +361,45 @@ destroy_editor :: proc(editor: ^Editor) {
 
 update :: proc(editor: ^Editor, dt: f64) {
 
+}
+
+// This renders the mapped version of the returned syntax tree.
+render_syntax_text :: proc(
+    editor: ^Editor,
+    line_text: string,
+    line_offset: int,
+    y: f32,
+    tokens: []treesitter.Token,
+) {
+    line_x := f32(60) - f32(editor.scroll_x)
+    last := 0
+    
+    for token in tokens {
+        if token.start < u32(line_offset) || token.end <= u32(line_offset) {
+            continue
+        }
+        
+        start := int(token.start) - line_offset
+        end := int(token.end) - line_offset
+        if start < 0 { start = 0 }
+        if end > len(line_text) { end = len(line_text) }
+        if start >= end { continue }
+
+        fragment := line_text[start:end]
+        
+        color := map_to_color(token.kind, editor.theme)
+        editor.text_renderer.color = color
+        render_text(&editor.text_renderer, editor.renderer, fragment, line_x, y, editor.allocator)
+        width := measure_text_width(&editor.text_renderer, fragment)
+        line_x += f32(width)
+        last = end
+    }
+    
+    if last < len(line_text) {
+        frag := line_text[last:]
+        editor.text_renderer.color = editor.theme.text
+        render_text(&editor.text_renderer, editor.renderer, frag, line_x, y, editor.allocator)
+    }
 }
 
 render :: proc(editor: ^Editor) {
@@ -522,6 +561,16 @@ render :: proc(editor: ^Editor) {
 
 		line_x := text_area_x - f32(editor.scroll_x)
 		render_text(&editor.text_renderer, editor.renderer, lines[i], line_x, y, editor.allocator)
+  		// line_start := 0
+        //       for j in 0..<i {
+        //           line_start += len(lines[j])
+        //       }
+        
+        //       render_syntax_text(editor, lines[i], line_start, y, treesitter.get_tokens_for_source(
+        //           get_text(&editor.gap_buffer, editor.allocator),
+        //           editor.treesitter.lang,
+        //           context.temp_allocator,
+        //       ))
 	}
 
 	// Cursor

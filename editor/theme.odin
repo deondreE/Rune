@@ -121,6 +121,28 @@ init_default_theme :: proc(theme_type: string) -> Theme {
    return {} 
 }
 
+hash :: proc(s: string) -> u16 {
+    h: u32 = 2166136261
+    for b in s {
+        h = (h ~ u32(b)) * 16777619
+    }
+    return u16(h & 0xFFFF)
+}
+
+// Maps the token type to an active color in the theme.
+map_to_color :: proc(kind_id: u16, theme: Theme) -> sdl.Color {
+    switch kind_id {
+    case hash("keyword"):  return theme.cursor     // example
+    case hash("identifier"): return theme.text
+    case hash("string"):   return theme.selection_text
+    case hash("comment"):  return theme.text_secondary
+    case hash("type"):     return theme.explorer_dir
+    case hash("function"): return theme.cursor
+    }
+    return theme.text // default
+}
+
+
 DEFAULT_CONFIG_PATH :: "assets/settings"
 
 // Writes the default config to the default user path.
