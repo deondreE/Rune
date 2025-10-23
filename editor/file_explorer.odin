@@ -284,6 +284,7 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer) {
 	// 4. Border (optional, above background but below text feels fine too)
 	_ = sdl.SetRenderDrawColor(renderer, 0x40, 0x40, 0x40, 0xFF)
 	_ = sdl.RenderRect(renderer, &bg_rect)
+	_ = sdl.SetRenderClipRect(renderer, nil)
 }
 
 handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> bool {
