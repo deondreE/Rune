@@ -138,7 +138,7 @@ set_text_color :: proc(tr: ^Text_Renderer, color: sdl.Color) {
 
 @(private)
 hash_string :: proc(s: string) -> u64 {
-    prime :: 1099511628211
+	prime :: 1099511628211
 	offset_basis :: 14695981039346656037
 	hash: u64 = offset_basis
 	for b in s {
@@ -148,7 +148,6 @@ hash_string :: proc(s: string) -> u64 {
 	return hash
 }
 
-@(private)
 get_cached_text_texture :: proc(
 	tr: ^Text_Renderer,
 	renderer: ^sdl.Renderer,

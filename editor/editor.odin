@@ -15,6 +15,7 @@ Editor :: struct {
 	batch_renderer:        Batch_Renderer,
 	text_renderer:         Text_Renderer,
 	gap_buffer:            Gap_Buffer,
+	minimap:               Minimap,
 	cursor_logical_pos:    int,
 	cursor_line_idx:       int,
 	cursor_col_idx:        int,
@@ -262,6 +263,7 @@ init_editor :: proc(
 		fmt.println("Failed to initialize text renderer")
 	}
 	editor.text_renderer = text_renderer
+	editor.minimap = init_minimap()
 	editor.double_click_ms = 300
 	editor.status_bar = init_status_bar()
 	editor.gap_buffer = init_gap_buffer(allocator)
@@ -538,6 +540,11 @@ render :: proc(editor: ^Editor) {
 	)
 	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
 	render_menu_bar(&editor.menu_bar, editor.renderer, window_w)
+
+	// TODO: Change this to support the setting.
+	if false {
+	    render_minimap(&editor.minimap, editor, editor.renderer, window_w, window_h)
+	}
 
 	sdl.RenderPresent(editor.renderer)
 }

@@ -34,6 +34,10 @@ Theme :: struct {
     selection_bg: sdl.Color,
     selection_text: sdl.Color,
     line_number_text: sdl.Color,
+    // Minimap
+    minimap_bg: sdl.Color,
+    minimap_text_color: sdl.Color,
+    // minimap_bg: sdl.Color,
 }
 
 // Initializes the default config. -- RGBA, u32 format. 
@@ -70,7 +74,10 @@ init_default_theme :: proc(theme_type: string) -> Theme {
 		cursor           = sdl.Color{179, 94, 89, 255},   // warm Lotus Orange caret
 		selection_bg     = sdl.Color{101, 133, 148, 63},  // semi‑transparent Lotus Blue
 		selection_text   = sdl.Color{0, 0, 0, 255},       // text on selection
-		line_number_text = sdl.Color{111, 111, 112, 255}, // muted numbers
+		line_number_text = sdl.Color{111, 111, 112, 255}, // muted numbers	
+		// Minimap
+		minimap_bg   = sdl.Color{0, 0, 0, 255},       // text on selection
+		minimap_text_color = sdl.Color{111, 111, 112, 255}, // muted numbers	
         }     
     } else {
         return Theme{
@@ -105,6 +112,9 @@ init_default_theme :: proc(theme_type: string) -> Theme {
             selection_bg     = sdl.Color{137, 180, 250, 64},  // Blue, semi-transparent
             selection_text   = sdl.Color{245, 224, 220, 255}, // Rosewater
             line_number_text = sdl.Color{88, 91, 112, 255},   // Surface2
+        
+            minimap_bg            = sdl.Color{49, 50, 68, 255}, 
+            minimap_text_color = sdl.Color{88, 91, 112, 255},  
         }
     }
     

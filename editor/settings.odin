@@ -10,6 +10,7 @@ Editor_Settings :: struct {
     theme: string,
     font_size: f32,
     font: string,
+    minimap: bool,
 }
 
 load_settings_file :: proc(editor: ^Editor) {
@@ -31,6 +32,7 @@ load_settings_file :: proc(editor: ^Editor) {
 			theme = "dark",
 			font_size = editor.text_renderer.font_size,
 			font = "Maple Mono",
+			minimap = false,
 		}
 		
 		json_bytes, err := json.marshal(default_settings, json.Marshal_Options{pretty = true}, editor.allocator)
