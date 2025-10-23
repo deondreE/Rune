@@ -36,11 +36,7 @@ Theme :: struct {
     line_number_text: sdl.Color,
 }
 
-/*
-
-
-*/
-
+// Initializes the default config. -- RGBA, u32 format. 
 init_default_theme :: proc(theme_type: string) -> Theme {
     if theme_type == "light" {
         return Theme{
@@ -180,6 +176,7 @@ write_default_config :: proc(theme: Theme, allocator: mem.Allocator, theme_type:
     fmt.println("Wrote json")
 }
 
+// Loads a default provided theme, or a user path provided theme. Will assume default if no user path is provided.
 load_user_theme :: proc(path: string, allocator: mem.Allocator) -> (Theme, bool) {
     theme := init_default_theme("dark")
     write_default_config(theme, allocator, "dark")
