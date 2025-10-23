@@ -233,6 +233,14 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer) {
 	}
 	_ = sdl.SetRenderDrawColor(renderer, 0x25, 0x25, 0x25, 0xFF)
 	_ = sdl.RenderFillRect(renderer, &bg_rect)
+	
+	clip_rect := sdl.Rect {
+	    x = i32(bg_rect.x),
+		y = i32(bg_rect.y),
+		w = i32(bg_rect.w),
+		h = i32(bg_rect.h),
+	}
+	sdl.SetRenderClipRect(renderer, &clip_rect)
 
 	start_idx := fe.scroll_offset
 	end_idx := min(len(fe.entries), start_idx + fe.visible_height)

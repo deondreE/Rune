@@ -27,7 +27,7 @@ main :: proc() {
 		WINDOW_TITLE,
 		WINDOW_WIDTH,
 		WINDOW_HEIGHT,
-		sdl.WindowFlags(sdl.WINDOW_RESIZABLE),
+		{.RESIZABLE, .BORDERLESS},
 	)
 	if window == nil {
 		fmt.eprintf("Window could not be created! SDL_Error: %s\n", sdl.GetError())

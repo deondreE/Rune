@@ -9,33 +9,35 @@ import lsp "lsp"
 import sdl "vendor:sdl3"
 
 Editor :: struct {
-	allocator:           mem.Allocator,
-	window:              ^sdl.Window,
-	renderer:            ^sdl.Renderer,
-	text_renderer:       Text_Renderer,
-	gap_buffer:          Gap_Buffer,
-	cursor_logical_pos:  int,
-	cursor_line_idx:     int,
-	cursor_col_idx:      int,
-	scroll_x:            int,
-	scroll_y:            int,
-	line_height:         i32,
-	char_width:          f32,
-	file_explorer:       File_Explorer,
-	search_bar:          Search_Bar,
-	context_menu:        Context_Menu,
-	menu_bar:            Menu_Bar,
-	status_bar:          Status_Bar,
-	lsp:                 ^lsp.LSP_Thread,
-	selection_start:     int,
-	selection_end:       int,
-	has_selection:       bool,
-	mouse_down:          bool,
-	mouse_dragging:      bool,
-	_is_mouse_selecting: bool,
-	last_click_time:     u64,
-	last_click_pos:      int,
-	double_click_ms:     u64,
+	allocator:             mem.Allocator,
+	window:                ^sdl.Window,
+	renderer:              ^sdl.Renderer,
+	batch_renderer:        Batch_Renderer,
+	text_renderer:         Text_Renderer,
+	gap_buffer:            Gap_Buffer,
+	cursor_logical_pos:    int,
+	cursor_line_idx:       int,
+	cursor_col_idx:        int,
+	scroll_x:              int,
+	scroll_y:              int,
+	line_height:           i32,
+	char_width:            f32,
+	file_explorer:         File_Explorer,
+	search_bar:            Search_Bar,
+	context_menu:          Context_Menu,
+	menu_bar:              Menu_Bar,
+	status_bar:            Status_Bar,
+	lsp:                   ^lsp.LSP_Thread,
+	selection_start:       int,
+	selection_end:         int,
+	has_selection:         bool,
+	mouse_down:            bool,
+	mouse_dragging:        bool,
+	_is_mouse_selecting:   bool,
+	last_click_time:       u64,
+	last_click_pos:        int,
+	double_click_ms:       u64,
+	default_white_texture: ^sdl.Texture,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -261,6 +263,7 @@ init_editor :: proc(
 	editor.status_bar = init_status_bar()
 	editor.gap_buffer = init_gap_buffer(allocator)
 	editor.cursor_logical_pos = 0
+	editor.batch_renderer = init_batch_renderer(editor.renderer, allocator)
 	editor.cursor_line_idx = 0
 	editor.cursor_col_idx = 0
 	editor.line_height = text_renderer.line_height
@@ -272,6 +275,18 @@ init_editor :: proc(
 This is your Odin code editor.
 Let's make some magic happen!`
 
+
+	white_surface := sdl.CreateSurface(1, 1, sdl.PixelFormat.RGBA32)
+	if white_surface == nil {
+		fmt.eprintln("Failed to create white surface:", sdl.GetError())
+	}
+	_ = sdl.FillSurfaceRect(white_surface, nil, 0xFFFFFFFF)
+
+	editor.default_white_texture = sdl.CreateTextureFromSurface(editor.renderer, white_surface)
+	if editor.default_white_texture == nil {
+		fmt.eprintln("Failed to create default white texture", sdl.GetError())
+	}
+	sdl.DestroySurface(white_surface)
 
 	insert_bytes(&editor.gap_buffer, transmute([]u8)initial_text, editor.allocator)
 
@@ -295,7 +310,7 @@ Let's make some magic happen!`
 		allocator,
 	)
 	editor.context_menu = init_context_menu(allocator)
-	editor.menu_bar = init_menu_bar(allocator)
+	editor.menu_bar = init_menu_bar(allocator, "assets/fonts/MapleMono-NF-Regular.ttf", 10, renderer)
 	editor.lsp = lsp.init_lsp_thread("ols", editor.allocator)
 
 	fmt.println("Editor initialized.")
@@ -308,6 +323,10 @@ destroy_editor :: proc(editor: ^Editor) {
 	destroy_gap_buffer(&editor.gap_buffer, editor.allocator)
 	destroy_file_explorer(&editor.file_explorer)
 	destroy_text_renderer(&editor.text_renderer)
+	destroy_batch_renderer(&editor.batch_renderer)
+	if editor.default_white_texture != nil {
+		sdl.DestroyTexture(editor.default_white_texture)
+	}
 	fmt.println("Editor destroyed.")
 }
 
@@ -330,6 +349,8 @@ render :: proc(editor: ^Editor) {
 	editor_area_x := file_explorer_width
 	editor_area_width := f32(window_w) - file_explorer_width
 	start_sel, end_sel := selection_range(editor)
+
+	begin_frame(&editor.batch_renderer)
 
 	// Search bar
 	render_search_bar(
@@ -392,7 +413,11 @@ render :: proc(editor: ^Editor) {
 				f32(editor.line_height),
 			}
 
+			// sel_geo := rect_to_geometry(rect, r_color)
+
+
 			to_render := rect_to_geometry(rect, r_color)
+			// add_geometry_to_batch(&editor.batch_renderer, to_render)
 			_ = sdl.RenderGeometry(
 				editor.renderer,
 				to_render.texture,
@@ -401,8 +426,12 @@ render :: proc(editor: ^Editor) {
 				raw_data(to_render.indices),
 				i32(len(to_render.indices)),
 			)
+			// delete(sel_geo.vertices, context.temp_allocator)
+			// delete(sel_geo.indices, context.temp_allocator)
 		}
 	}
+
+	flush_batches(&editor.batch_renderer)
 
 	// Core Editor Text & Cursor
 	lines := get_lines(&editor.gap_buffer, editor.allocator)
@@ -498,13 +527,16 @@ render :: proc(editor: ^Editor) {
 		editor.renderer,
 		int(window_w),
 		int(window_h),
+		editor.cursor_line_idx,
+		editor.cursor_col_idx,
 		editor.allocator,
 	)
 	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
-	render_menu_bar(&editor.menu_bar, editor.renderer)
+	render_menu_bar(&editor.menu_bar, editor.renderer, window_w)
 
 	sdl.RenderPresent(editor.renderer)
 }
+
 handle_backspace :: proc(editor: ^Editor) {
 	if editor.has_selection {
 		delete_selection(editor)
@@ -661,6 +693,10 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	if handle_search_bar_event(&editor.search_bar, editor, event) {
 		return
 	}
+	
+	if handle_menu_bar_event(&editor.menu_bar, event, editor.window) {
+	    return
+	}
 
 	#partial switch event.type {
 	case .MOUSE_WHEEL:
@@ -699,6 +735,12 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 
 			editor.last_click_time = now
 			editor.last_click_pos = pos
+		}
+
+		if event.button.button == sdl.BUTTON_RIGHT {
+			fmt.println("Testing this thing")
+			show_context_menu(&editor.context_menu, f32(event.button.x), f32(event.button.y))
+			handle_context_menu_event(&editor.context_menu, event)
 		}
 	case .MOUSE_MOTION:
 		if editor.mouse_down {
@@ -896,7 +938,6 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		)
 	}
 }
-
 
 load_text_into_editor :: proc(editor: ^Editor, text: string) {
 	// Clear old buffer
