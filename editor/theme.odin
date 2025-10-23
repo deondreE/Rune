@@ -176,6 +176,8 @@ write_default_config :: proc(theme: Theme, allocator: mem.Allocator, theme_type:
     fmt.println("Wrote json")
 }
 
+// TODO: To set editor theme just use "default" as the string input for init_default_theme.
+
 // Loads a default provided theme, or a user path provided theme. Will assume default if no user path is provided.
 load_user_theme :: proc(path: string, allocator: mem.Allocator) -> (Theme, bool) {
     theme := init_default_theme("dark")
