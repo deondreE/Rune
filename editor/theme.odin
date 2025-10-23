@@ -111,11 +111,11 @@ init_default_theme :: proc(theme_type: string) -> Theme {
    return {} 
 }
 
-DEFAULT_THEME_PATH :: "assets/settings"
+DEFAULT_CONFIG_PATH :: "assets/settings"
 
 // Writes the default config to the default user path.
 write_default_config :: proc(theme: Theme, allocator: mem.Allocator, theme_type: string) {
-    config_dir := DEFAULT_THEME_PATH
+    config_dir := DEFAULT_CONFIG_PATH
     is_dark := false
     if theme_type == "dark" { is_dark = true } 
     config_path := filepath.join({config_dir, is_dark ? "catputtion.json" : "light.json"}, allocator)
