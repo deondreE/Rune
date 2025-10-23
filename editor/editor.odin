@@ -24,7 +24,7 @@ Editor :: struct {
 	line_height:           i32,
 	char_width:            f32,
 	file_explorer:         File_Explorer,
-	theme: Theme,
+	theme:                 Theme,
 	search_bar:            Search_Bar,
 	context_menu:          Context_Menu,
 	menu_bar:              Menu_Bar,
@@ -257,7 +257,7 @@ init_editor :: proc(
 	editor.renderer = renderer
 	theme, _ := load_user_theme("assets/settings/theme.json", allocator)
 	editor.theme = theme
-	
+
 	text_renderer, ok := init_text_renderer("assets/fonts/MapleMono-NF-Regular.ttf", 16, allocator)
 	if !ok {
 		fmt.println("Failed to initialize text renderer")
@@ -315,7 +315,13 @@ Let's make some magic happen!`
 		allocator,
 	)
 	editor.context_menu = init_context_menu(allocator)
-	editor.menu_bar = init_menu_bar(allocator, "assets/fonts/MapleMono-NF-Regular.ttf", 10, renderer, &editor)
+	editor.menu_bar = init_menu_bar(
+		allocator,
+		"assets/fonts/MapleMono-NF-Regular.ttf",
+		10,
+		renderer,
+		&editor,
+	)
 	editor.lsp = lsp.init_lsp_thread("ols", editor.allocator)
 
 	fmt.println("Editor initialized.")
@@ -341,7 +347,13 @@ update :: proc(editor: ^Editor, dt: f64) {
 
 render :: proc(editor: ^Editor) {
 	// Clear background
-	_ = sdl.SetRenderDrawColor(editor.renderer, editor.theme.background.r,editor.theme.background.g,editor.theme.background.b,editor.theme.background.a)
+	_ = sdl.SetRenderDrawColor(
+		editor.renderer,
+		editor.theme.background.r,
+		editor.theme.background.g,
+		editor.theme.background.b,
+		editor.theme.background.a,
+	)
 	_ = sdl.RenderClear(editor.renderer)
 
 	window_w: i32
@@ -543,7 +555,7 @@ render :: proc(editor: ^Editor) {
 
 	// TODO: Change this to support the setting.
 	if false {
-	    render_minimap(&editor.minimap, editor, editor.renderer, window_w, window_h)
+		render_minimap(&editor.minimap, editor, editor.renderer, window_w, window_h)
 	}
 
 	sdl.RenderPresent(editor.renderer)
@@ -705,9 +717,9 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	if handle_search_bar_event(&editor.search_bar, editor, event) {
 		return
 	}
-	
+
 	if handle_menu_bar_event(&editor.menu_bar, event, editor.window) {
-	    return
+		return
 	}
 
 	#partial switch event.type {
@@ -804,7 +816,9 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT
 		fmt.println("%v", event.key.mod)
-		if event.key.mod == sdl.KMOD_LCTRL || event.key.mod == sdl.KMOD_LALT {
+		if event.key.mod == sdl.KMOD_LCTRL ||
+		   event.key.mod == sdl.KMOD_LALT ||
+		   event.key.mod == sdl.KMOD_LGUI {
 			switch event.key.key {
 			case 'p':
 				// CTRL-P -- Search
@@ -813,7 +827,7 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 					editor.search_bar.caret_pos = 0
 				}
 			case 'a':
-				// CTRL-A -- Select all	
+				// CTRL-A -- Select all
 				editor.selection_start = 0
 				editor.selection_end = current_length(&editor.gap_buffer)
 				editor.has_selection = true
@@ -839,7 +853,7 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 				prototype_run()
 				return
 			case ',':
-				// ','	
+				// ','
 				// TODO: render settings file here.
 				load_settings_file(editor)
 				return
