@@ -5,3 +5,4 @@ Rune.dSYM
 *.exe
 
 *.idea
+*target
