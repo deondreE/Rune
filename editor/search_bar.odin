@@ -1,10 +1,12 @@
 package editor
 
+import "core:text/regex"
 import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "treesitter"
 import "core:time"
 import sdl "vendor:sdl3"
 
@@ -329,6 +331,7 @@ handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Ev
 				selected := sb.matches[sb.selected_index]
 				fmt.printf("Opening: %s at line %d\n", selected.path, selected.index)
 				if entry, exists := sb.file_cache[selected.path]; exists {
+				    editor.treesitter.lang = treesitter.get_lang_from_filepath(selected.path)
 					load_text_into_editor(editor, entry.content)
 				} else {
 					text, ok := os.read_entire_file_from_filename(selected.path, sb.allocator)

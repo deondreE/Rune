@@ -43,14 +43,23 @@ Lang :: enum i32 {
     Odin = 3,
 }
 
-// Detemines the lang from the filname suffix.
-get_lang_from_filename :: proc(filename: string) -> Lang {
-    lower := strings.to_lower(filename)
-    if strings.has_suffix(lower, ".odin") {  return Lang.Odin }
-    if strings.has_suffix(lower, ".rs") {     return Lang.Rust }
-    if strings.has_suffix(lower, ".c") ||
-        strings.has_suffix(lower, ".h")  { return Lang.C }
-    if strings.has_suffix(lower, ".py")  { return Lang.Python }
+// Detemines the lang from the filpath.
+get_lang_from_filepath :: proc(path: string) -> Lang {
+    lower_path := strings.to_lower(path)
+        
+    sep_index := max(strings.last_index_byte(lower_path, '/'),
+                         strings.last_index_byte(lower_path, '\\'))
+    name_part := lower_path
+    if sep_index != -1 {
+        name_part = lower_path[sep_index + 1:]
+    }
+    
+    if strings.has_suffix(name_part, ".odin")    { return Lang.Odin }
+    if strings.has_suffix(name_part, ".rs")      { return Lang.Rust }
+    if strings.has_suffix(name_part, ".c") ||
+        strings.has_suffix(name_part, ".h")       { return Lang.C }
+    if strings.has_suffix(name_part, ".py")      { return Lang.Python }
+    
     return Lang.Odin
 }
 

@@ -7,6 +7,7 @@ import "core:strings"
 import "core:unicode/utf8"
 import lsp "lsp"
 import sdl "vendor:sdl3"
+import "treesitter"
 
 Editor :: struct {
 	allocator:             mem.Allocator,
@@ -40,6 +41,7 @@ Editor :: struct {
 	last_click_pos:        int,
 	double_click_ms:       u64,
 	default_white_texture: ^sdl.Texture,
+	treesitter: treesitter.Treesitter,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -244,6 +246,8 @@ insert_char :: proc(editor: ^Editor, r: rune) {
 
 	update_cursor_position(editor)
 	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+	
+	update_parse_tree(editor)
 }
 
 init_editor :: proc(
@@ -275,6 +279,8 @@ init_editor :: proc(
 	editor.char_width = text_renderer.char_width
 	editor.search_bar = init_search_bar(allocator)
 	editor._is_mouse_selecting = false
+	editor.treesitter = treesitter.init(treesitter.Lang.Odin)
+	fmt.println("Tree-Sitter context intiailized (default: Odin).")
 
 	initial_text := `Hello, Deondre!
 This is your Odin code editor.
@@ -326,6 +332,18 @@ Let's make some magic happen!`
 
 	fmt.println("Editor initialized.")
 	return editor
+}
+
+update_parse_tree :: proc(editor: ^Editor) {
+    code := get_text(&editor.gap_buffer, editor.allocator)
+    ast := treesitter.parse_source(&editor.treesitter, code, editor.allocator)
+    
+    fmt.println("Tree-Sitter AST (first 200 chars):")
+    if len(ast) > 200 {
+        fmt.println(ast[:200], "...")
+    } else {
+        fmt.println(ast)
+    }
 }
 
 destroy_editor :: proc(editor: ^Editor) {
@@ -579,6 +597,8 @@ handle_backspace :: proc(editor: ^Editor) {
 		update_cursor_position(editor)
 		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 	}
+	
+	update_parse_tree(editor)
 }
 
 delete_char_from_string :: proc(s: string, index: int, allocator: mem.Allocator) -> string {
@@ -601,6 +621,8 @@ delete_selection :: proc(editor: ^Editor) {
 	editor.cursor_logical_pos = start_sel
 	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 	clear_selection(editor)
+	
+	update_parse_tree(editor)
 }
 
 is_word_char :: proc(c: u8) -> bool {
