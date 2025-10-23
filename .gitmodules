@@ -1,0 +1,3 @@
+[submodule "vendor/treesitter"]
+	path = vendor/treesitter
+	url = https://github.com/deondreE/odin-tree-sitter.git
