@@ -6,8 +6,8 @@ import "core:mem"
 import "core:strings"
 import "core:unicode/utf8"
 import lsp "lsp"
-import sdl "vendor:sdl3"
 import "treesitter"
+import sdl "vendor:sdl3"
 
 Editor :: struct {
 	allocator:             mem.Allocator,
@@ -41,7 +41,7 @@ Editor :: struct {
 	last_click_pos:        int,
 	double_click_ms:       u64,
 	default_white_texture: ^sdl.Texture,
-	treesitter: treesitter.Treesitter,
+	treesitter:            treesitter.Treesitter,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -246,7 +246,7 @@ insert_char :: proc(editor: ^Editor, r: rune) {
 
 	update_cursor_position(editor)
 	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
-	
+
 	update_parse_tree(editor)
 }
 
@@ -335,15 +335,15 @@ Let's make some magic happen!`
 }
 
 update_parse_tree :: proc(editor: ^Editor) {
-    code := get_text(&editor.gap_buffer, editor.allocator)
-    ast := treesitter.parse_source(&editor.treesitter, code, editor.allocator)
-    
-    fmt.println("Tree-Sitter AST (first 200 chars):")
-    if len(ast) > 200 {
-         fmt.println(ast[:200], "...")
-    } else {
-        fmt.println(ast)
-    }
+	code := get_text(&editor.gap_buffer, editor.allocator)
+	ast := treesitter.parse_source(&editor.treesitter, code, editor.allocator)
+
+	fmt.println("Tree-Sitter AST (first 200 chars):")
+	if len(ast) > 200 {
+		fmt.println(ast[:200], "...")
+	} else {
+		fmt.println(ast)
+	}
 }
 
 destroy_editor :: proc(editor: ^Editor) {
@@ -365,41 +365,59 @@ update :: proc(editor: ^Editor, dt: f64) {
 
 // This renders the mapped version of the returned syntax tree.
 render_syntax_text :: proc(
-    editor: ^Editor,
-    line_text: string,
-    line_offset: int,
-    y: f32,
-    tokens: []treesitter.Token,
+	editor: ^Editor,
+	line_text: string,
+	line_offset: int,
+	y: f32,
+	tokens: []treesitter.Token,
 ) {
-    line_x := f32(60) - f32(editor.scroll_x)
-    last := 0
-    
-    for token in tokens {
-        if token.start < u32(line_offset) || token.end <= u32(line_offset) {
-            continue
-        }
-        
-        start := int(token.start) - line_offset
-        end := int(token.end) - line_offset
-        if start < 0 { start = 0 }
-        if end > len(line_text) { end = len(line_text) }
-        if start >= end { continue }
+	line_x := f32(60) - f32(editor.scroll_x)
+	last := 0
 
-        fragment := line_text[start:end]
-        
-        color := map_to_color(token.kind, editor.theme)
-        editor.text_renderer.color = color
-        render_text(&editor.text_renderer, editor.renderer, fragment, line_x, y, editor.allocator)
-        width := measure_text_width(&editor.text_renderer, fragment)
-        line_x += f32(width)
-        last = end
-    }
-    
-    if last < len(line_text) {
-        frag := line_text[last:]
-        editor.text_renderer.color = editor.theme.text
-        render_text(&editor.text_renderer, editor.renderer, frag, line_x, y, editor.allocator)
-    }
+	for token in tokens {
+		if token.start < u32(line_offset) || token.end <= u32(line_offset) {
+			continue
+		}
+
+		start := int(token.start) - line_offset
+		end := int(token.end) - line_offset
+
+		if start < 0 {start = 0}
+		if end > len(line_text) {end = len(line_text)}
+		if start >= end {continue}
+
+		fragment := line_text[start:end]
+		if len(fragment) == 0 { continue }
+
+		color := map_to_color(token.kind, editor.theme)
+		render_text(
+			&editor.text_renderer,
+			editor.renderer,
+			fragment,
+			line_x,
+			y,
+			editor.allocator,
+			color,
+		)
+
+		width := measure_text_width(&editor.text_renderer, fragment)
+		line_x += f32(width)
+		last = end
+	}
+
+	// Draw any remaining plain text after the last token
+	if last < len(line_text) {
+		frag := line_text[last:]
+		render_text(
+			&editor.text_renderer,
+			editor.renderer,
+			frag,
+			line_x,
+			y,
+			editor.allocator,
+			editor.theme.text,
+		)
+	}
 }
 
 render :: proc(editor: ^Editor) {
@@ -412,7 +430,6 @@ render :: proc(editor: ^Editor) {
 		editor.theme.background.a,
 	)
 	_ = sdl.RenderClear(editor.renderer)
-
 	window_w: i32
 	window_h: i32
 	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
@@ -508,6 +525,7 @@ render :: proc(editor: ^Editor) {
 
 	flush_batches(&editor.batch_renderer)
 
+
 	// Core Editor Text & Cursor
 	lines := get_lines(&editor.gap_buffer, editor.allocator)
 	defer {
@@ -518,17 +536,29 @@ render :: proc(editor: ^Editor) {
 	gutter_width := f32(60)
 	text_area_x := text_origin_x + gutter_width
 
+	//  Obtain syntax tokens once per frame
+	// -----------------------------------------------------------------
+	full_source := get_text(&editor.gap_buffer, editor.allocator)
+	tokens, count := treesitter.get_hightlight_tokens(
+		full_source,
+		editor.treesitter.lang,
+		context.temp_allocator,
+	)
+	defer if count > 0 {treesitter.ts_free_tokens(&tokens[0], count)}
+
 	// Compute visible line window
 	start_line := max(0, editor.scroll_y / int(editor.line_height))
 	visible_lines := int(f32(window_h) / f32(editor.line_height)) + 2
 	end_line := min(len(lines), start_line + visible_lines)
 
+	// Render line number + syntax highlighted text
 	for i := start_line; i < end_line; i += 1 {
 		y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
 		if y < -f32(editor.line_height) || y > f32(window_h) {
 			continue
 		}
 
+		// ----------------- line numbers ---------------
 		line_num := i + 1
 		line_num_str: string
 		if line_num < 10 {
@@ -546,7 +576,11 @@ render :: proc(editor: ^Editor) {
 		if i == editor.cursor_line_idx {
 			editor.text_renderer.color = editor.theme.line_number_text
 		} else {
-			editor.text_renderer.color = editor.theme.text
+			line_offset := 0
+			for j := 0; j < i; j += 1 {
+				line_offset += len(transmute([]u8)lines[j])
+			}
+			render_syntax_text(editor, lines[i], line_offset, y, tokens)
 		}
 
 		render_text(
@@ -556,21 +590,15 @@ render :: proc(editor: ^Editor) {
 			editor_area_x + 5,
 			y,
 			editor.allocator,
+			editor.text_renderer.color,
 		)
-		editor.text_renderer.color = original_color
 
-		line_x := text_area_x - f32(editor.scroll_x)
-		render_text(&editor.text_renderer, editor.renderer, lines[i], line_x, y, editor.allocator)
-  		// line_start := 0
-        //       for j in 0..<i {
-        //           line_start += len(lines[j])
-        //       }
-        
-        //       render_syntax_text(editor, lines[i], line_start, y, treesitter.get_tokens_for_source(
-        //           get_text(&editor.gap_buffer, editor.allocator),
-        //           editor.treesitter.lang,
-        //           context.temp_allocator,
-        //       ))
+		fmt.println("Token count: %d\n", count)
+		line_offset := 0
+		for j := 0; j < i; j += 1 {
+			line_offset += len(transmute([]u8)lines[j])
+		}
+		render_syntax_text(editor, lines[i], line_offset, y, tokens)
 	}
 
 	// Cursor
@@ -646,7 +674,7 @@ handle_backspace :: proc(editor: ^Editor) {
 		update_cursor_position(editor)
 		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 	}
-	
+
 	update_parse_tree(editor)
 }
 
@@ -670,7 +698,7 @@ delete_selection :: proc(editor: ^Editor) {
 	editor.cursor_logical_pos = start_sel
 	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 	clear_selection(editor)
-	
+
 	update_parse_tree(editor)
 }
 

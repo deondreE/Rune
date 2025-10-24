@@ -36,6 +36,7 @@ foreign tsgateway {
     ts_parse :: proc(source: cstring, lang_id: i32) -> TSResult ---
     ts_free_result :: proc(result: TSResult) ---
     ts_get_tokens :: proc(source: cstring, lang: i32, out_tokens: ^[^]Token) -> int ---
+    ts_get_highlight_tokens :: proc(source: cstring, lang_id: i32, out_tokens: ^[^]Token) -> int ---
     ts_free_tokens :: proc(tokens: ^Token, len: int) ---
 }
 
@@ -69,6 +70,23 @@ get_tokens_for_source :: proc(
 
     tokens := toks_ptr[:len]
     return tokens, len
+}
+
+get_hightlight_tokens :: proc(
+    source: string,
+    lang: Lang,
+    allocator: mem.Allocator,
+) -> ([]Token, int) {
+    c_src := strings.clone_to_cstring(source, allocator)
+    defer delete(c_src, allocator)
+    
+    toks_ptr: [^]Token = nil
+    count := ts_get_highlight_tokens(c_src, i32(lang), &toks_ptr)
+    if count <= 0 || toks_ptr == nil {
+        return {}, 0
+    }
+    tokens := toks_ptr[:count]
+    return tokens,count
 }
 
 // Convenience scoped wrapper that automatically frees tokens.
@@ -130,6 +148,7 @@ parse_source :: proc(ctx: ^Treesitter, source: string,
     }
 
     ctx.ast_string = strings.clone_from_cstring(result.root_sexpr, allocator)
+    defer delete(ctx.ast_string, allocator)
     return ctx.ast_string
 }
 

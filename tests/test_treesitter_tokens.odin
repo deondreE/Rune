@@ -16,6 +16,7 @@ test_get_tokens_for_source :: proc(t: ^testing.T) {
         treesitter.Lang.Python = "def foo():\n    return 42",
         treesitter.Lang.Rust   = "fn add(a: i32, b: i32) -> i32 { a + b }",
     }
+    defer delete(sources)
 
     for lang, src in sources {
         fmt.printf("\n[Tree‑sitter Token Test] Parsing %v code...\n", lang)

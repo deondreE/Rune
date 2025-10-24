@@ -1,13 +1,13 @@
 package editor
 
-import "core:text/regex"
 import "core:fmt"
 import "core:mem"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
-import "treesitter"
+import "core:text/regex"
 import "core:time"
+import "treesitter"
 import sdl "vendor:sdl3"
 
 File_Match :: struct {
@@ -267,8 +267,8 @@ update_search_results :: proc(sb: ^Search_Bar) {
 	}
 
 	if sb.current_query != query {
-	    sb.selected_index = 0
-		delete(sb.current_query,sb.allocator)
+		sb.selected_index = 0
+		delete(sb.current_query, sb.allocator)
 		sb.current_query = strings.clone(query, sb.allocator)
 	}
 	sb.last_search_time = current_time
@@ -331,7 +331,7 @@ handle_search_bar_event :: proc(sb: ^Search_Bar, editor: ^Editor, event: ^sdl.Ev
 				selected := sb.matches[sb.selected_index]
 				fmt.printf("Opening: %s at line %d\n", selected.path, selected.index)
 				if entry, exists := sb.file_cache[selected.path]; exists {
-				    editor.treesitter.lang = treesitter.get_lang_from_filepath(selected.path)
+					editor.treesitter.lang = treesitter.get_lang_from_filepath(selected.path)
 					load_text_into_editor(editor, entry.content)
 				} else {
 					text, ok := os.read_entire_file_from_filename(selected.path, sb.allocator)
@@ -408,10 +408,16 @@ render_search_bar :: proc(
 	bar_w := f32(window_w) - 2 * bar_x
 
 	// Background
-	_ = sdl.SetRenderDrawColor(renderer, editor.theme.sb_bg.r, editor.theme.sb_bg.g, editor.theme.sb_bg.b, editor.theme.sb_bg.a)
+	_ = sdl.SetRenderDrawColor(
+		renderer,
+		editor.theme.sb_bg.r,
+		editor.theme.sb_bg.g,
+		editor.theme.sb_bg.b,
+		editor.theme.sb_bg.a,
+	)
 	bar_rect := sdl.FRect{bar_x, bar_y, bar_w, bar_h}
 	_ = sdl.RenderFillRect(renderer, &bar_rect)
-	
+
 	// Outline
 	_ = sdl.SetRenderDrawColor(renderer, 0x80, 0x80, 0x80, 0xFF)
 	_ = sdl.RenderRect(renderer, &bar_rect)
@@ -434,6 +440,7 @@ render_search_bar :: proc(
 		bar_x + 10.0,
 		bar_y + (bar_h - f32(text_renderer.line_height)) / 2.0,
 		sb.allocator,
+		editor.theme.sb_text,
 	)
 
 	// Draw caret
@@ -448,7 +455,13 @@ render_search_bar :: proc(
 	blink_interval_ms :: 500
 	current_time_ms := sdl.GetTicks()
 	if (current_time_ms / u64(blink_interval_ms)) % 2 == 0 {
-		_ = sdl.SetRenderDrawColor(renderer, editor.theme.cursor.r, editor.theme.cursor.g, editor.theme.cursor.b, editor.theme.cursor.a)
+		_ = sdl.SetRenderDrawColor(
+			renderer,
+			editor.theme.cursor.r,
+			editor.theme.cursor.g,
+			editor.theme.cursor.b,
+			editor.theme.cursor.a,
+		)
 		_ = sdl.RenderFillRect(renderer, &caret_rect)
 	}
 
@@ -469,7 +482,13 @@ render_search_bar :: proc(
 			}
 
 			if i == sb.selected_index {
-				_ = sdl.SetRenderDrawColor(renderer, editor.theme.sb_select.r, editor.theme.sb_select.g, editor.theme.sb_select.b, editor.theme.sb_select.a)
+				_ = sdl.SetRenderDrawColor(
+					renderer,
+					editor.theme.sb_select.r,
+					editor.theme.sb_select.g,
+					editor.theme.sb_select.b,
+					editor.theme.sb_select.a,
+				)
 				_ = sdl.RenderFillRect(renderer, &item_rect)
 			} else {
 				_ = sdl.SetRenderDrawColor(renderer, 0x20, 0x20, 0x20, 0xFF)
@@ -483,7 +502,15 @@ render_search_bar :: proc(
 			}
 
 			display_str := fmt.tprintf("%s:%d - %s", filepath.base(m.path), m.index, display_line)
-			render_text(text_renderer, renderer, display_str, item_x, item_y + 2.0, sb.allocator)
+			render_text(
+				text_renderer,
+				renderer,
+				display_str,
+				item_x,
+				item_y + 2.0,
+				sb.allocator,
+				{0x20, 0x20, 0x20, 0xFF},
+			)
 
 			item_y += f32(text_renderer.line_height) + 6.0
 		}
@@ -491,7 +518,15 @@ render_search_bar :: proc(
 		// Show result count
 		if len(sb.matches) > max_visible {
 			status_text := fmt.tprintf("Showing %d of %d matches", max_visible, len(sb.matches))
-			render_text(text_renderer, renderer, status_text, item_x, item_y + 5.0, sb.allocator)
+			render_text(
+				text_renderer,
+				renderer,
+				status_text,
+				item_x,
+				item_y + 5.0,
+				sb.allocator,
+				editor.theme.status_text,
+			)
 		}
 	}
 }

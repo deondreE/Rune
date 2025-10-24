@@ -34,7 +34,13 @@ render_status_bar :: proc(
 		h = stb.height,
 	}
 
-	_ = sdl.SetRenderDrawColor(renderer, editor.theme.status_bg.r, editor.theme.status_bg.g, editor.theme.status_bg.b, editor.theme.status_bg.a)
+	_ = sdl.SetRenderDrawColor(
+		renderer,
+		editor.theme.status_bg.r,
+		editor.theme.status_bg.g,
+		editor.theme.status_bg.b,
+		editor.theme.status_bg.a,
+	)
 	_ = sdl.RenderFillRect(renderer, &bar_rect)
 
 	now := time.now()
@@ -52,17 +58,45 @@ render_status_bar :: proc(
 	text_width := measure_text_width(text_renderer, time_string)
 	text_x := f32(window_w) - text_width - 10.0 // 10px padding from right edge
 	text_y := bar_y + (stb.height - f32(text_renderer.line_height)) / 2.0
-	
-	_ = sdl.SetRenderDrawColor(renderer, editor.theme.status_text.r, editor.theme.status_text.g, editor.theme.status_text.b, editor.theme.status_text.a)
-	render_text(text_renderer, renderer, time_string, text_x, text_y, allocator)
 
-	line_col_string := fmt.aprintf("Ln: %d, Col: %d", current_line+1, current_col+1)
-	
+	_ = sdl.SetRenderDrawColor(
+		renderer,
+		editor.theme.status_text.r,
+		editor.theme.status_text.g,
+		editor.theme.status_text.b,
+		editor.theme.status_text.a,
+	)
+	render_text(
+		text_renderer,
+		renderer,
+		time_string,
+		text_x,
+		text_y,
+		allocator,
+		editor.theme.status_text,
+	)
+
+	line_col_string := fmt.aprintf("Ln: %d, Col: %d", current_line + 1, current_col + 1)
+
 	line_col_text_x := f32(10.0)
 	line_col_text_y := text_y
-	
-	_ = sdl.SetRenderDrawColor(renderer, editor.theme.status_text.r, editor.theme.status_text.g, editor.theme.status_text.b, editor.theme.status_text.a)
-	render_text(text_renderer, renderer, line_col_string, line_col_text_x, line_col_text_y, )
+
+	_ = sdl.SetRenderDrawColor(
+		renderer,
+		editor.theme.status_text.r,
+		editor.theme.status_text.g,
+		editor.theme.status_text.b,
+		editor.theme.status_text.a,
+	)
+	render_text(
+		text_renderer,
+		renderer,
+		line_col_string,
+		line_col_text_x,
+		line_col_text_y,
+		editor.allocator,
+		editor.theme.status_text,
+	)
 }
 
 get_status_bar_height :: proc(status_bar: ^Status_Bar) -> f32 {

@@ -148,6 +148,13 @@ hash_string :: proc(s: string) -> u64 {
 	return hash
 }
 
+@(private)
+hash_string_color :: proc(s: string, color: sdl.Color) -> u64 {
+	h := hash_string(s)
+	h = h ~ (u64(color.r) << 24 | u64(color.g) << 16 | u64(color.b) << 8 | u64(color.a))
+	return h
+}
+
 get_cached_text_texture :: proc(
 	tr: ^Text_Renderer,
 	renderer: ^sdl.Renderer,
@@ -163,7 +170,7 @@ get_cached_text_texture :: proc(
 		return nil, 0, 0, false
 	}
 
-	text_hash := hash_string(text)
+	text_hash := hash_string_color(text, color)
 
 	if entry, ok := tr.text_cache[text_hash]; ok {
 		entry.last_used = tr.frame_counter
@@ -231,6 +238,7 @@ render_text :: proc(
 	text: string,
 	x, y: f32,
 	allocator: mem.Allocator = context.allocator,
+	color: sdl.Color,
 ) -> bool {
 	if tr.font == nil || len(text) == 0 {
 		return false
@@ -307,7 +315,15 @@ render_text_lines :: proc(
 		current_x := start_x - f32(scroll_x)
 
 		if len(line) < 0 {
-			render_text(tr, renderer, line, current_x, current_y)
+			render_text(
+				tr,
+				renderer,
+				line,
+				current_x,
+				current_y,
+				allocator,
+				{0xFF, 0xFF, 0xFF, 0xFF},
+			)
 		}
 	}
 }

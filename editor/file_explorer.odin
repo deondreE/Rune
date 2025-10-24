@@ -231,11 +231,17 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer, editor
 		w = fe.width,
 		h = f32(fe.visible_height) * f32(fe.item_height),
 	}
-	_ = sdl.SetRenderDrawColor(renderer, editor.theme.explorer_bg.r,editor.theme.explorer_bg.g,editor.theme.explorer_bg.b,editor.theme.explorer_bg.a)
+	_ = sdl.SetRenderDrawColor(
+		renderer,
+		editor.theme.explorer_bg.r,
+		editor.theme.explorer_bg.g,
+		editor.theme.explorer_bg.b,
+		editor.theme.explorer_bg.a,
+	)
 	_ = sdl.RenderFillRect(renderer, &bg_rect)
-	
+
 	clip_rect := sdl.Rect {
-	    x = i32(bg_rect.x),
+		x = i32(bg_rect.x),
 		y = i32(bg_rect.y),
 		w = i32(bg_rect.w),
 		h = i32(bg_rect.h),
@@ -254,7 +260,13 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer, editor
 				w = fe.width,
 				h = f32(fe.item_height),
 			}
-			_ = sdl.SetRenderDrawColor(renderer, editor.theme.explorer_select.r,editor.theme.explorer_select.g,editor.theme.explorer_select.b,editor.theme.explorer_select.a)
+			_ = sdl.SetRenderDrawColor(
+				renderer,
+				editor.theme.explorer_select.r,
+				editor.theme.explorer_select.g,
+				editor.theme.explorer_select.b,
+				editor.theme.explorer_select.a,
+			)
 			_ = sdl.RenderFillRect(renderer, &highlight)
 		}
 	}
@@ -267,7 +279,15 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer, editor
 		x := fe.x + indent + 5
 
 		icon := entry.is_dir ? (entry.is_open ? "↓" : "»") : "°"
-		render_text(&fe.text_renderer, renderer, icon, x, y, fe.allocator)
+		render_text(
+			&fe.text_renderer,
+			renderer,
+			icon,
+			x,
+			y,
+			fe.allocator,
+			editor.theme.explorer_text,
+		)
 		if (renderer == nil) {fmt.println("Test brokey")}
 
 		filename_x := x + 25
@@ -277,12 +297,26 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer, editor
 			fe.text_renderer.color = editor.theme.explorer_text
 		}
 
-		render_text(&fe.text_renderer, renderer, entry.name, filename_x, y, fe.allocator)
+		render_text(
+			&fe.text_renderer,
+			renderer,
+			entry.name,
+			filename_x,
+			y,
+			fe.allocator,
+			editor.text_renderer.color,
+		)
 	}
 	fe.text_renderer.color = original_color
 
 	// 4. Border (optional, above background but below text feels fine too)
-	_ = sdl.SetRenderDrawColor(renderer, editor.theme.explorer_bg.r, editor.theme.explorer_bg.g, editor.theme.explorer_bg.b, editor.theme.explorer_bg.a)
+	_ = sdl.SetRenderDrawColor(
+		renderer,
+		editor.theme.explorer_bg.r,
+		editor.theme.explorer_bg.g,
+		editor.theme.explorer_bg.b,
+		editor.theme.explorer_bg.a,
+	)
 	_ = sdl.RenderRect(renderer, &bg_rect)
 	_ = sdl.SetRenderClipRect(renderer, nil)
 }

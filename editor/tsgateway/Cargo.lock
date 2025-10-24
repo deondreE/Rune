@@ -137,6 +137,7 @@ dependencies = [
 name = "tsgateway"
 version = "0.1.0"
 dependencies = [
+ "streaming-iterator",
  "tree-sitter",
  "tree-sitter-c",
  "tree-sitter-odin",
