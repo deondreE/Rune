@@ -279,8 +279,6 @@ init_editor :: proc(
 	editor.char_width = text_renderer.char_width
 	editor.search_bar = init_search_bar(allocator)
 	editor._is_mouse_selecting = false
-	editor.treesitter = treesitter.init(treesitter.Lang.Odin)
-	fmt.println("Tree-Sitter context intiailized (default: Odin).")
 
 	initial_text := `Hello, Deondre!
 This is your Odin code editor.

@@ -148,7 +148,7 @@ parse_source :: proc(ctx: ^Treesitter, source: string,
     }
 
     ctx.ast_string = strings.clone_from_cstring(result.root_sexpr, allocator)
-    defer delete(ctx.ast_string, allocator)
+    // defer delete(ctx.ast_string, allocator)
     return ctx.ast_string
 }
 
