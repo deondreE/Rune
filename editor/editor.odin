@@ -406,15 +406,17 @@ render_syntax_text :: proc(
 	// Draw any remaining plain text after the last token
 	if last < len(line_text) {
 		frag := line_text[last:]
-		render_text(
-			&editor.text_renderer,
-			editor.renderer,
-			frag,
-			line_x,
-			y,
-			editor.allocator,
-			editor.theme.text,
-		)
+		if len(frag) > 0 {
+    		render_text(
+    			&editor.text_renderer,
+    			editor.renderer,
+    			frag,
+    			line_x,
+    			y,
+    			editor.allocator,
+    			editor.theme.text,
+    		)
+		}
 	}
 }
 
@@ -574,11 +576,7 @@ render :: proc(editor: ^Editor) {
 		if i == editor.cursor_line_idx {
 			editor.text_renderer.color = editor.theme.line_number_text
 		} else {
-			line_offset := 0
-			for j := 0; j < i; j += 1 {
-				line_offset += len(transmute([]u8)lines[j])
-			}
-			render_syntax_text(editor, lines[i], line_offset, y, tokens)
+		    editor.text_renderer.color = editor.theme.text
 		}
 
 		render_text(
@@ -590,8 +588,7 @@ render :: proc(editor: ^Editor) {
 			editor.allocator,
 			editor.text_renderer.color,
 		)
-
-		fmt.println("Token count: %d\n", count)
+		// fmt.println("Token count: %d\n", count)
 		line_offset := 0
 		for j := 0; j < i; j += 1 {
 			line_offset += len(transmute([]u8)lines[j])

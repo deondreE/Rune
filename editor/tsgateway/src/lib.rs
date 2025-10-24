@@ -1,5 +1,9 @@
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int};
+use std::{
+    fs,
+    io::Write,
+};
 use tree_sitter::{Language, Parser, Tree};
 use streaming_iterator::StreamingIterator;
 
@@ -369,8 +373,22 @@ pub extern "C" fn ts_parse(source: *const c_char, lang_id: c_int) -> TSResult {
         }
     };
 
-    let sexpr = CString::new(tree.root_node().to_sexp()).unwrap();
+    let sepxr_str = tree.root_node().to_sexp();
+    
+    let _ = fs::create_dir_all("out");
+    let path = format!("out/parse_lang{}_tree.ast", lang_id);
+    match fs::File::create(&path) {
+        Ok(mut file) => {
+            if let Err(e) = file.write_all(sepxr_str.as_bytes()) {
+                eprintln!("Error writing AST file {}: {}", path, e);
+            } else {
+                eprintln!("AST written")
+            }
+        }
+        Err(e) => eprintln!("Could not create AST file {}: {}", path, e)
+    }
 
+    let sexpr = CString::new(sepxr_str).unwrap();
     TSResult {
         tree_ptr: Box::into_raw(Box::new(tree)),
         root_sexpr: sexpr.into_raw(),
