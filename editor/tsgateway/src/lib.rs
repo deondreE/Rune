@@ -262,7 +262,7 @@ pub extern "C" fn ts_get_highlight_tokens(
         None => return 0,
     };
     parser.set_language(&lang).ok();
-    
+
     let Some(tree) = parser.parse(code, None) else { return 0 };
     
     let query_source = match lang_id {

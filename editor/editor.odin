@@ -9,6 +9,13 @@ import lsp "lsp"
 import "treesitter"
 import sdl "vendor:sdl3"
 
+UI_Focus_Target :: enum {
+    Editor,
+    FileExplorer,
+    SearchBar,
+    None,
+}
+
 Editor :: struct {
 	allocator:             mem.Allocator,
 	window:                ^sdl.Window,
@@ -42,6 +49,7 @@ Editor :: struct {
 	double_click_ms:       u64,
 	default_white_texture: ^sdl.Texture,
 	treesitter:            treesitter.Treesitter,
+	focus_target:          UI_Focus_Target,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -279,6 +287,7 @@ init_editor :: proc(
 	editor.char_width = text_renderer.char_width
 	editor.search_bar = init_search_bar(allocator)
 	editor._is_mouse_selecting = false
+	editor.focus_target = .Editor
 
 	initial_text := `Hello, Deondre!
 This is your Odin code editor.
@@ -368,8 +377,9 @@ render_syntax_text :: proc(
 	line_offset: int,
 	y: f32,
 	tokens: []treesitter.Token,
+	line: f32,
 ) {
-	line_x := f32(60) - f32(editor.scroll_x)
+	line_x := line + f32(60) - f32(editor.scroll_x)
 	last := 0
 
 	for token in tokens {
@@ -455,8 +465,9 @@ render :: proc(editor: ^Editor) {
 
 	// File Explorer
 	if editor.file_explorer.is_visible {
-		render_file_explorer(&editor.file_explorer, editor.renderer, editor)
-
+		render_file_explorer(&editor.file_explorer, editor.renderer, editor) 
+	    // TODO: Apply space offset 
+		
 		_ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
 		divider_rect := sdl.FRect {
 			x = f32(editor.file_explorer.width) - 1.0,
@@ -583,7 +594,7 @@ render :: proc(editor: ^Editor) {
 			&editor.text_renderer,
 			editor.renderer,
 			line_num_str,
-			editor_area_x + 5,
+			text_origin_x + 5,
 			y,
 			editor.allocator,
 			editor.text_renderer.color,
@@ -593,7 +604,7 @@ render :: proc(editor: ^Editor) {
 		for j := 0; j < i; j += 1 {
 			line_offset += len(transmute([]u8)lines[j])
 		}
-		render_syntax_text(editor, lines[i], line_offset, y, tokens)
+		render_syntax_text(editor, lines[i], line_offset, y, tokens, editor_area_x)
 	}
 
 	// Cursor
@@ -799,264 +810,318 @@ select_word_at_pos :: proc(editor: ^Editor, pos: int) {
 }
 
 handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
-	menu_offset_y := f32(editor.menu_bar.height) + 10
-	if handle_search_bar_event(&editor.search_bar, editor, event) {
-		return
-	}
+    menu_offset_y := f32(editor.menu_bar.height) + 10
 
-	if handle_file_explorer_event(&editor.file_explorer, event) {
-		return
-	}
+    // --- Focus handling section ---
+    if editor.search_bar.is_visible {
+        if handle_search_bar_event(&editor.search_bar, editor, event) {
+            editor.focus_target = .SearchBar
+            return
+        }
+    }
 
-	if handle_search_bar_event(&editor.search_bar, editor, event) {
-		return
-	}
+    if editor.file_explorer.is_visible {
+        if handle_file_explorer_event(&editor.file_explorer, event) {
+            editor.focus_target = .FileExplorer
+            return
+        }
 
-	if handle_menu_bar_event(&editor.menu_bar, event, editor.window) {
-		return
-	}
+        if event.type == sdl.EventType.MOUSE_BUTTON_DOWN {
+            mouse_x := f32(event.button.x)
+            mouse_y := f32(event.button.y)
+            x_max := editor.file_explorer.x + editor.file_explorer.width
+            y_max := editor.file_explorer.y +
+                f32(editor.file_explorer.visible_height * int(editor.file_explorer.item_height))
 
-	#partial switch event.type {
-	case .MOUSE_WHEEL:
-		scroll_delta := int(event.wheel.y) * int(editor.line_height)
+            in_explorer :=
+                mouse_x >= editor.file_explorer.x &&
+                mouse_x <= x_max &&
+                mouse_y >= editor.file_explorer.y &&
+                mouse_y <= y_max
 
-		editor.scroll_y -= int(scroll_delta)
+            if !in_explorer {
+                editor.focus_target = .Editor
+            }
+        }
+    }
 
-		lines := get_lines(&editor.gap_buffer, editor.allocator)
-		total_lines := len(lines)
-		defer {
-			for line in lines {delete(line, editor.allocator)}
-			delete(lines, editor.allocator)
-		}
+    switch editor.focus_target {
+    case .FileExplorer:
+        _ = handle_file_explorer_event(&editor.file_explorer, event)
+        return
+    case .SearchBar:
+        if handle_search_bar_event(&editor.search_bar, editor, event) {
+            return
+        }
+    case .Editor:
+        // continue below for normal editor input handling
+    case .None:
+        return
+    }
 
-		max_scroll := max(0, total_lines * int(editor.line_height) - 400)
-		editor.scroll_y = clamp(editor.scroll_y, 0, max_scroll)
-	case .MOUSE_BUTTON_DOWN:
-		if event.button.button == sdl.BUTTON_LEFT {
-			now := sdl.GetTicks()
-			mouse_x := event.button.x
-			mouse_y := event.button.y
+    // --- EDITOR MOUSE & KEYBOARD HANDLING ---
+    #partial switch event.type {
+    case .MOUSE_WHEEL:
+        scroll_delta := int(event.wheel.y) * int(editor.line_height)
+        editor.scroll_y -= int(scroll_delta)
 
-			pos := screen_to_logical_pos(editor, int(mouse_x), int(mouse_y))
+        lines := get_lines(&editor.gap_buffer, editor.allocator)
+        total_lines := len(lines)
+        defer {
+            for line in lines { delete(line, editor.allocator) }
+            delete(lines, editor.allocator)
+        }
+        max_scroll := max(0, total_lines * int(editor.line_height) - 400)
+        editor.scroll_y = clamp(editor.scroll_y, 0, max_scroll)
 
-			if (now - editor.last_click_time) <= editor.double_click_ms &&
-			   abs(pos - editor.last_click_pos) < 2 { 	// small threshold
-				select_word_at_pos(editor, pos)
-			} else {
-				// Record click position and allow dragging
-				editor.cursor_logical_pos = pos
-				editor.selection_start = pos
-				editor.selection_end = pos
-				editor.has_selection = false
-				editor.mouse_down = true
-			}
+    case .MOUSE_BUTTON_DOWN:
+        if event.button.button == sdl.BUTTON_LEFT {
+            now := sdl.GetTicks()
+            mouse_x := event.button.x
+            mouse_y := event.button.y
 
-			editor.last_click_time = now
-			editor.last_click_pos = pos
-		}
+            pos := screen_to_logical_pos(editor, int(mouse_x), int(mouse_y))
 
-		if event.button.button == sdl.BUTTON_RIGHT {
-			fmt.println("Testing this thing")
-			show_context_menu(&editor.context_menu, f32(event.button.x), f32(event.button.y))
-			handle_context_menu_event(&editor.context_menu, event)
-		}
-	case .MOUSE_MOTION:
-		if editor.mouse_down {
-			mouse_x := event.motion.x
-			mouse_y := event.motion.y
+            // Double-click to select word
+            if (now - editor.last_click_time) <= editor.double_click_ms &&
+               abs(pos - editor.last_click_pos) < 2 {
+                select_word_at_pos(editor, pos)
+            } else {
+                editor.cursor_logical_pos = pos
+                editor.selection_start = pos
+                editor.selection_end = pos
+                editor.has_selection = false
+                editor.mouse_down = true
+            }
 
-			view_height := 200
-			text_top := menu_offset_y
-			text_bottom := int(text_top) + int(view_height)
+            editor.focus_target = .Editor
+            editor.last_click_time = now
+            editor.last_click_pos = pos
+        }
 
-			pos: int
+        if event.button.button == sdl.BUTTON_RIGHT {
+            show_context_menu(&editor.context_menu, f32(event.button.x), f32(event.button.y))
+            handle_context_menu_event(&editor.context_menu, event)
+        }
 
-			if mouse_y < text_top {
-				pos = 0
-			} else if int(mouse_y) > int(text_bottom) {
-				lines := get_lines(&editor.gap_buffer, editor.allocator)
-				defer {
-					for line in lines {delete(line, editor.allocator)}
-					delete(lines, editor.allocator)
-				}
-				last_line := len(lines) - 1
-				last_col := len(lines[last_line])
-				pos = line_col_to_logical_pos(&editor.gap_buffer, last_line, last_col)
-			} else {
-				pos = screen_to_logical_pos(editor, int(mouse_x), int(mouse_y))
-			}
+    case .MOUSE_MOTION:
+        if editor.mouse_down {
+            mouse_x := event.motion.x
+            mouse_y := event.motion.y
 
-			editor.selection_end = pos
-			editor.has_selection = true
-			editor.mouse_dragging = true
-			editor.cursor_logical_pos = pos
-			move_gap(&editor.gap_buffer, pos)
-			update_cursor_position(editor)
-		}
-	case .MOUSE_BUTTON_UP:
-		if event.button.button == sdl.BUTTON_LEFT {
-			editor.mouse_down = false
-			editor.mouse_dragging = false
-			if editor.selection_start == editor.selection_end {
-				editor.has_selection = false
-			} else {
-				editor.has_selection = true
-			}
-		} else {
-			editor.has_selection = false
-			editor.selection_start = editor.cursor_logical_pos
-			editor.selection_end = editor.cursor_logical_pos
-		}
-	case sdl.EventType.KEY_DOWN:
-		shift_held := event.key.mod == sdl.KMOD_LSHIFT
-		fmt.println("%v", event.key.mod)
-		if event.key.mod == sdl.KMOD_LCTRL ||
-		   event.key.mod == sdl.KMOD_LALT ||
-		   event.key.mod == sdl.KMOD_LGUI {
-			switch event.key.key {
-			case 'p':
-				// CTRL-P -- Search
-				editor.search_bar.is_visible = !editor.search_bar.is_visible
-				if editor.search_bar.is_visible {
-					editor.search_bar.caret_pos = 0
-				}
-			case 'a':
-				// CTRL-A -- Select all
-				editor.selection_start = 0
-				editor.selection_end = current_length(&editor.gap_buffer)
-				editor.has_selection = true
-				return
-			case 'c':
-				// CTRL-C -- Copy
-				copy_selection_to_clipboard(editor)
-				return
-			case 'x':
-				// CTRL-X -- Cut
-				copy_selection_to_clipboard(editor)
-				delete_selection(editor)
-				return
-			case 'v':
-				// CTRL-V	-- Paste
-				paste_from_clipboard(editor)
-				return
-			case 'b':
-				// CTRL-B -- FileExplorer
-				editor.file_explorer.is_visible = !editor.file_explorer.is_visible
-				return
-			case 'i':
-				prototype_run()
-				return
-			case ',':
-				// ','
-				// TODO: render settings file here.
-				load_settings_file(editor)
-				return
-			case 1073741903:
-				// Right Arrow jump to front of word.
-				move_cursor_word_right(editor)
-				return
-			case 1073741904:
-				// Left arrow jump to end of word.
-				move_cursor_word_left(editor)
-				return
-			}
-		}
+            view_height := 200
+            text_top := menu_offset_y
+            text_bottom := int(text_top) + int(view_height)
 
-		switch event.key.key {
-		case 27:
-		case 9:
-			// Tab
-			// TODO: replace '\t' with some tab_size value.
-			insert_char(editor, '\t')
-			editor.cursor_logical_pos += editor.gap_buffer.tab_size
-			update_cursor_position(editor)
-		case 13:
-			// enter
-			insert_char(editor, '\n')
-		case 8:
-			// backspace
-			handle_backspace(editor)
-		case 46:
-			// TODO: Implement delete_bytes_right, also consider UTF-8
-			fmt.println("Delete key pressed (not yet fully implemented).")
-		case 1073741904:
-			// Left Arrow
-			old_pos := editor.cursor_logical_pos
-			move_cursor_left(editor)
-			if shift_held {
-				if !editor.has_selection {
-					editor.selection_start = old_pos
-					editor.has_selection = true
-				}
-				editor.selection_end = editor.cursor_logical_pos
-			} else {
-				clear_selection(editor)
-			}
-		case 1073741903:
-			// Right Arrow
-			old_pos := editor.cursor_logical_pos
-			move_cursor_right(editor)
-			if shift_held {
-				if !editor.has_selection {
-					editor.selection_start = old_pos
-					editor.has_selection = true
-				}
-				editor.selection_end = editor.cursor_logical_pos
-			} else {
-				clear_selection(editor)
-			}
-		case 1073741906:
-			// Up
-			old_pos := editor.cursor_logical_pos
-			move_cursor_up(editor)
-			if shift_held {
-				if !editor.has_selection {
-					editor.selection_start = old_pos
-					editor.has_selection = true
-				}
-				editor.selection_end = editor.cursor_logical_pos
-			} else {
-				clear_selection(editor)
-			}
-		case 1073741905:
-			// Down
-			old_pos := editor.cursor_logical_pos
-			move_cursor_down(editor)
-			if shift_held {
-				if !editor.has_selection {
-					editor.selection_start = old_pos
-					editor.has_selection = true
-				}
-				editor.selection_end = editor.cursor_logical_pos
-			} else {
-				clear_selection(editor)
-			}
-		case 113:
-			toggle_file_explorer(&editor.file_explorer)
-			return
-		}
-	case sdl.EventType.TEXT_INPUT:
-		// This event is for actual character input
-		text_cstr := event.text.text
-		text_len := len(string(text_cstr))
-		text_input_bytes := ([^]u8)(text_cstr)[:text_len]
-		insert_bytes(&editor.gap_buffer, text_input_bytes, editor.allocator)
-		inserted_bytes_len := len(text_input_bytes)
-		editor.cursor_logical_pos += inserted_bytes_len
+            pos: int
+            if mouse_y < text_top {
+                pos = 0
+            } else if int(mouse_y) > int(text_bottom) {
+                lines := get_lines(&editor.gap_buffer, editor.allocator)
+                defer {
+                    for line in lines { delete(line, editor.allocator) }
+                    delete(lines, editor.allocator)
+                }
+                last_line := len(lines) - 1
+                last_col := len(lines[last_line])
+                pos = line_col_to_logical_pos(
+                    &editor.gap_buffer,
+                    last_line,
+                    last_col,
+                )
+            } else {
+                pos = screen_to_logical_pos(editor, int(mouse_x), int(mouse_y))
+            }
 
-		for r_idx := 0; r_idx < len(text_input_bytes); {
-			size := text_len
-			editor.cursor_col_idx += 1
-			r_idx += size
-		}
-		move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+            editor.selection_end = pos
+            editor.has_selection = true
+            editor.mouse_dragging = true
+            editor.cursor_logical_pos = pos
+            move_gap(&editor.gap_buffer, pos)
+            update_cursor_position(editor)
+        }
 
-		fmt.printf(
-			"Text input: '%s', Current Logical Pos: %d\n",
-			string(event.text.text)[:],
-			editor.cursor_logical_pos,
-		)
-	}
+    case .MOUSE_BUTTON_UP:
+        if event.button.button == sdl.BUTTON_LEFT {
+            editor.mouse_down = false
+            editor.mouse_dragging = false
+            if editor.selection_start == editor.selection_end {
+                editor.has_selection = false
+            } else {
+                editor.has_selection = true
+            }
+        } else {
+            editor.has_selection = false
+            editor.selection_start = editor.cursor_logical_pos
+            editor.selection_end = editor.cursor_logical_pos
+        }
+
+    case sdl.EventType.KEY_DOWN:
+        shift_held := event.key.mod == sdl.KMOD_LSHIFT
+
+        // --- CTRL/ALT combinations ---
+        if event.key.mod == sdl.KMOD_LCTRL ||
+           event.key.mod == sdl.KMOD_LALT ||
+           event.key.mod == sdl.KMOD_LGUI {
+            switch event.key.key {
+            case 'p':
+                // CTRL+P → Toggle Search
+                editor.search_bar.is_visible = !editor.search_bar.is_visible
+                if editor.search_bar.is_visible {
+                    editor.focus_target = .SearchBar
+                    editor.search_bar.caret_pos = 0
+                } else {
+                    editor.focus_target = .Editor
+                }
+                return
+
+            case 'a':
+                // CTRL+A
+                editor.selection_start = 0
+                editor.selection_end = current_length(&editor.gap_buffer)
+                editor.has_selection = true
+                return
+
+            case 'c':
+                copy_selection_to_clipboard(editor)
+                return
+
+            case 'x':
+                copy_selection_to_clipboard(editor)
+                delete_selection(editor)
+                return
+
+            case 'v':
+                paste_from_clipboard(editor)
+                return
+
+            case 'b':
+                editor.file_explorer.is_visible = !editor.file_explorer.is_visible
+                editor.focus_target =
+                    editor.file_explorer.is_visible ? .FileExplorer : .Editor
+                return
+
+            case 'i':
+                prototype_run()
+                return
+
+            case ',':
+                load_settings_file(editor)
+                return
+
+            case 1073741903: // Ctrl + →
+                move_cursor_word_right(editor)
+                return
+
+            case 1073741904: // Ctrl + ←
+                move_cursor_word_left(editor)
+                return
+            }
+        }
+
+        // --- Normal keypresses ---
+        switch event.key.key {
+        case 27:
+            // Escape — clear UI focus
+            editor.focus_target = .Editor
+            clear_selection(editor)
+
+        case 9:
+            // Tab
+            insert_char(editor, '\t')
+            editor.cursor_logical_pos += editor.gap_buffer.tab_size
+            update_cursor_position(editor)
+
+        case 13:
+            insert_char(editor, '\n')
+
+        case 8:
+            handle_backspace(editor)
+
+        case 46:
+            fmt.println("Delete key pressed (not yet implemented).")
+
+        case 1073741904:
+            old_pos := editor.cursor_logical_pos
+            move_cursor_left(editor)
+            if shift_held {
+                if !editor.has_selection {
+                    editor.selection_start = old_pos
+                    editor.has_selection = true
+                }
+                editor.selection_end = editor.cursor_logical_pos
+            } else {
+                clear_selection(editor)
+            }
+
+        case 1073741903:
+            old_pos := editor.cursor_logical_pos
+            move_cursor_right(editor)
+            if shift_held {
+                if !editor.has_selection {
+                    editor.selection_start = old_pos
+                    editor.has_selection = true
+                }
+                editor.selection_end = editor.cursor_logical_pos
+            } else {
+                clear_selection(editor)
+            }
+
+        case 1073741906:
+            old_pos := editor.cursor_logical_pos
+            move_cursor_up(editor)
+            if shift_held {
+                if !editor.has_selection {
+                    editor.selection_start = old_pos
+                    editor.has_selection = true
+                }
+                editor.selection_end = editor.cursor_logical_pos
+            } else {
+                clear_selection(editor)
+            }
+
+        case 1073741905:
+            old_pos := editor.cursor_logical_pos
+            move_cursor_down(editor)
+            if shift_held {
+                if !editor.has_selection {
+                    editor.selection_start = old_pos
+                    editor.has_selection = true
+                }
+                editor.selection_end = editor.cursor_logical_pos
+            } else {
+                clear_selection(editor)
+            }
+
+        case 113:
+            toggle_file_explorer(&editor.file_explorer)
+            editor.focus_target =
+                editor.file_explorer.is_visible ? .FileExplorer : .Editor
+            return
+        }
+
+    case sdl.EventType.TEXT_INPUT:
+        text_cstr := event.text.text
+        text_len := len(string(text_cstr))
+        text_input_bytes := ([^]u8)(text_cstr)[:text_len]
+
+        insert_bytes(&editor.gap_buffer, text_input_bytes, editor.allocator)
+        inserted_bytes_len := len(text_input_bytes)
+        editor.cursor_logical_pos += inserted_bytes_len
+
+        for r_idx := 0; r_idx < len(text_input_bytes); {
+            size := text_len
+            editor.cursor_col_idx += 1
+            r_idx += size
+        }
+        move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
+
+        fmt.printf(
+            "Text input: '%s', Current Logical Pos: %d\n",
+            string(event.text.text)[:],
+            editor.cursor_logical_pos,
+        )
+    }
 }
 
 load_text_into_editor :: proc(editor: ^Editor, text: string) {
