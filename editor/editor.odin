@@ -5,7 +5,6 @@ import "core:math"
 import "core:mem"
 import "core:strings"
 import "core:unicode/utf8"
-import lsp "lsp"
 import "treesitter"
 import sdl "vendor:sdl3"
 
@@ -37,7 +36,6 @@ Editor :: struct {
 	context_menu:          Context_Menu,
 	menu_bar:              Menu_Bar,
 	status_bar:            Status_Bar,
-	lsp:                   ^lsp.LSP_Thread,
 	selection_start:       int,
 	selection_end:         int,
 	has_selection:         bool,
@@ -335,7 +333,7 @@ Let's make some magic happen!`
 		renderer,
 		&editor,
 	)
-	editor.lsp = lsp.init_lsp_thread("ols", editor.allocator)
+	// editor.lsp = lsp.init_lsp_thread("ols", editor.allocator)
 
 	fmt.println("Editor initialized.")
 	return editor
