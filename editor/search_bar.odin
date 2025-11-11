@@ -186,59 +186,80 @@ search_files_in_dir_fast :: proc(
 			append(&files, info)
 		}
 	}
+	
+	// --- Stage 1: Filename matches ---
+    for info in files {
+        if len(matches) >= sb.max_results {
+            break
+        }
 
-	// Search files in current directory first
-	for info in files {
-		if len(matches) >= sb.max_results {
-			break
-		}
+        lower_name := strings.to_lower(info.name, allocator)
+        has_name_match := strings.contains(lower_name, lower_query)
+        delete(lower_name, allocator)
 
-		full_path := filepath.join({dir_path, info.name}, allocator)
-		defer delete(full_path, allocator)
+        if has_name_match {
+            full_path := filepath.join({dir_path, info.name}, allocator)
+            defer delete(full_path, allocator)
 
-		lines, ok := get_file_lines(full_path, sb, allocator)
-		if !ok {
-			continue
-		}
+            fm := File_Match{
+                path  = strings.clone(full_path, allocator),
+                line  = strings.clone("[filename match]", allocator),
+                index = 0,
+            }
+            append(&matches, fm)
+        }
+    }
 
-		for line, i in lines {
-			if len(matches) >= sb.max_results {
-				break
-			}
+    // --- Stage 2: Content matches ---
+    for info in files {
+        if len(matches) >= sb.max_results {
+            break
+        }
 
-			if strings.contains(strings.to_lower(line), lower_query) {
-				fm := File_Match {
-					path  = strings.clone(full_path, allocator),
-					line  = strings.clone(strings.trim_space(line), allocator),
-					index = i + 1, // 1-based line numbers
-				}
-				append(&matches, fm)
-			}
-		}
-	}
+        full_path := filepath.join({dir_path, info.name}, allocator)
+        defer delete(full_path, allocator)
 
-	// Then search subdirectories
-	for info in dirs {
-		if len(matches) >= sb.max_results {
-			break
-		}
+        lines, ok := get_file_lines(full_path, sb, allocator)
+        if !ok {
+            continue
+        }
 
-		full_path := filepath.join({dir_path, info.name}, allocator)
-		defer delete(full_path, allocator)
+        for line, i in lines {
+            if len(matches) >= sb.max_results {
+                break
+            }
 
-		sub_matches := search_files_in_dir_fast(full_path, query, sb, allocator)
-		for m in sub_matches {
-			if len(matches) >= sb.max_results {
-				break
-			}
-			append(&matches, m)
-		}
-		delete(sub_matches, allocator)
-	}
+            if strings.contains(strings.to_lower(line), lower_query) {
+                fm := File_Match{
+                    path  = strings.clone(full_path, allocator),
+                    line  = strings.clone(strings.trim_space(line), allocator),
+                    index = i + 1, // 1-based line number
+                }
+                append(&matches, fm)
+            }
+        }
+    }
 
-	delete(files)
-	delete(dirs)
-	return matches[:]
+    // --- Stage 3: Recurse into subdirectories ---
+    for info in dirs {
+        if len(matches) >= sb.max_results {
+            break
+        }
+
+        full_path := filepath.join({dir_path, info.name}, allocator)
+        defer delete(full_path, allocator)
+
+        sub_matches := search_files_in_dir_fast(full_path, query, sb, allocator)
+        for m in sub_matches {
+            if len(matches) >= sb.max_results {
+                break
+            }
+            append(&matches, m)
+        }
+        delete(sub_matches, allocator)
+    }
+
+    return matches[:]
 }
 
 // Debounced search update
