@@ -270,6 +270,10 @@ render_text_fast :: proc(
 		return false
 	}
 
+	if !is_valid_text(text) {
+		return false
+	}
+
 	sdl.SetTextureColorMod(tr.glyph_atlas.texture, color.r, color.g, color.b)
 	sdl.SetTextureAlphaMod(tr.glyph_atlas.texture, color.a)
 
@@ -306,6 +310,23 @@ render_text_fast :: proc(
 	}
 
 	return true
+}
+
+is_valid_text :: proc(text: string) -> bool {
+	if len(text) == 0 {
+		return true
+	}
+
+	// Check for null bytes which indicate corrupted data
+	for b in text {
+		if b == 0 {
+			return false
+		}
+	}
+
+	// Validate UTF-8
+	valid := utf8.valid_string(text)
+	return valid
 }
 
 get_cached_text_texture :: proc(

@@ -373,66 +373,6 @@ update :: proc(editor: ^Editor, dt: f64) {
 
 }
 
-// This renders the mapped version of the returned syntax tree.
-render_syntax_text :: proc(
-	editor: ^Editor,
-	line_text: string,
-	line_offset: int,
-	y: f32,
-	tokens: []treesitter.Token,
-	line: f32,
-) {
-	line_x := line + f32(60) - f32(editor.scroll_x)
-	last := 0
-
-	for token in tokens {
-		if token.start < u32(line_offset) || token.end <= u32(line_offset) {
-			continue
-		}
-
-		start := int(token.start) - line_offset
-		end := int(token.end) - line_offset
-
-		if start < 0 {start = 0}
-		if end > len(line_text) {end = len(line_text)}
-		if start >= end {continue}
-
-		fragment := line_text[start:end]
-		if len(fragment) == 0 {continue}
-
-		color := map_to_color(token.kind, editor.theme)
-		render_text(
-			&editor.text_renderer,
-			editor.renderer,
-			fragment,
-			line_x,
-			y,
-			editor.allocator,
-			color,
-		)
-
-		width := measure_text_width(&editor.text_renderer, fragment)
-		line_x += f32(width)
-		last = end
-	}
-
-	// Draw any remaining plain text after the last token
-	if last < len(line_text) {
-		frag := line_text[last:]
-		if len(frag) > 0 {
-			render_text(
-				&editor.text_renderer,
-				editor.renderer,
-				frag,
-				line_x,
-				y,
-				editor.allocator,
-				editor.theme.text,
-			)
-		}
-	}
-}
-
 render :: proc(editor: ^Editor) {
 	// Clear background
 	_ = sdl.SetRenderDrawColor(
@@ -443,6 +383,7 @@ render :: proc(editor: ^Editor) {
 		editor.theme.background.a,
 	)
 	_ = sdl.RenderClear(editor.renderer)
+
 	window_w: i32
 	window_h: i32
 	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
@@ -450,8 +391,7 @@ render :: proc(editor: ^Editor) {
 	menu_offset_y := f32(editor.menu_bar.height) + 10
 	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
 	text_origin_x := f32(file_explorer_width)
-	editor_area_x := file_explorer_width
-	editor_area_width := f32(window_w) - file_explorer_width
+	editor_area_x := f32(file_explorer_width)
 	start_sel, end_sel := selection_range(editor)
 
 	begin_frame(&editor.batch_renderer)
@@ -469,7 +409,6 @@ render :: proc(editor: ^Editor) {
 	// File Explorer
 	if editor.file_explorer.is_visible {
 		render_file_explorer(&editor.file_explorer, editor.renderer, editor)
-		// TODO: Apply space offset
 
 		_ = sdl.SetRenderDrawColor(editor.renderer, 0x40, 0x40, 0x40, 0xFF)
 		divider_rect := sdl.FRect {
@@ -481,23 +420,60 @@ render :: proc(editor: ^Editor) {
 		_ = sdl.RenderFillRect(editor.renderer, &divider_rect)
 	}
 
+	// Get lines ONCE for the entire render
+	lines := get_lines(&editor.gap_buffer, editor.allocator)
+	defer {
+		for line in lines {
+			delete(line, editor.allocator)
+		}
+		delete(lines, editor.allocator)
+	}
+
+	// Validate lines array
+	if len(lines) == 0 {
+		// Render empty editor UI
+		render_status_bar(
+			&editor.status_bar,
+			&editor.text_renderer,
+			editor.renderer,
+			editor,
+			int(window_w),
+			int(window_h),
+			0,
+			0,
+			editor.allocator,
+		)
+		render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
+		render_menu_bar(&editor.menu_bar, editor.renderer, window_w)
+		sdl.RenderPresent(editor.renderer)
+		return
+	}
+
+	// Compute visible line range
+	start_line := max(0, editor.scroll_y / int(editor.line_height))
+	visible_lines := int(f32(window_h) / f32(editor.line_height)) + 2
+	end_line := min(len(lines), start_line + visible_lines)
+
+	// Clamp to valid range
+	start_line = clamp(start_line, 0, len(lines))
+	end_line = clamp(end_line, 0, len(lines))
+
 	// Selection rendering
 	if editor.has_selection && start_sel != end_sel {
 		r_color := editor.theme.selection_bg
-		// _ = sdl.SetRenderDrawColor(editor.renderer, 0x33, 0x66, 0xCC, 0x80)
-
-		lines := get_lines(&editor.gap_buffer, editor.allocator)
-		defer {
-			for line in lines {delete(line, editor.allocator)}
-			delete(lines, editor.allocator)
-		}
 
 		sel_line_start, sel_col_start := logical_pos_to_line_col(&editor.gap_buffer, start_sel)
 		sel_line_end, sel_col_end := logical_pos_to_line_col(&editor.gap_buffer, end_sel)
 
-		for i := sel_line_start; i <= sel_line_end && i < len(lines); i += 1 {
+		// Clamp selection lines to visible range for performance
+		render_start := max(sel_line_start, start_line)
+		render_end := min(sel_line_end + 1, end_line)
+
+		for i := render_start; i < render_end && i < len(lines); i += 1 {
 			y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
-			if y < -f32(editor.line_height) || y > f32(window_h) { 	// skip off‑screen
+
+			// Skip off-screen
+			if y < -f32(editor.line_height) || y > f32(window_h) {
 				continue
 			}
 
@@ -506,24 +482,28 @@ render :: proc(editor: ^Editor) {
 
 			line_start_col := 0
 			line_end_col := len(line_text)
-			if i == sel_line_start {line_start_col = sel_col_start}
-			if i == sel_line_end {line_end_col = sel_col_end}
+			if i == sel_line_start {
+				line_start_col = sel_col_start
+			}
+			if i == sel_line_end {
+				line_end_col = sel_col_end
+			}
+
+			// Clamp columns to line length
+			line_start_col = clamp(line_start_col, 0, len(line_text))
+			line_end_col = clamp(line_end_col, 0, len(line_text))
 
 			width_start := measure_text_width(&editor.text_renderer, line_text[:line_start_col])
 			width_end := measure_text_width(&editor.text_renderer, line_text[:line_end_col])
 
 			rect := sdl.FRect {
-				line_x + f32(width_start),
-				y,
-				f32(width_end - width_start),
-				f32(editor.line_height),
+				x = line_x + text_origin_x + f32(width_start),
+				y = y,
+				w = f32(width_end - width_start),
+				h = f32(editor.line_height),
 			}
 
-			// sel_geo := rect_to_geometry(rect, r_color)
-
-
 			to_render := rect_to_geometry(rect, r_color)
-			// add_geometry_to_batch(&editor.batch_renderer, to_render)
 			_ = sdl.RenderGeometry(
 				editor.renderer,
 				to_render.texture,
@@ -532,65 +512,59 @@ render :: proc(editor: ^Editor) {
 				raw_data(to_render.indices),
 				i32(len(to_render.indices)),
 			)
-			// delete(sel_geo.vertices, context.temp_allocator)
-			// delete(sel_geo.indices, context.temp_allocator)
 		}
 	}
 
 	flush_batches(&editor.batch_renderer)
 
-
 	// Core Editor Text & Cursor
-	lines := get_lines(&editor.gap_buffer, editor.allocator)
-	defer {
-		for line in lines {delete(line, editor.allocator)}
-		delete(lines, editor.allocator)
-	}
-
 	gutter_width := f32(60)
 	text_area_x := text_origin_x + gutter_width
 
-	//  Obtain syntax tokens once per frame
-	// -----------------------------------------------------------------
+	// Obtain syntax tokens once per frame
 	full_source := get_text(&editor.gap_buffer, editor.allocator)
+	defer delete(full_source, editor.allocator)
+
 	tokens, count := treesitter.get_hightlight_tokens(
 		full_source,
 		editor.treesitter.lang,
 		context.temp_allocator,
 	)
-	defer if count > 0 {treesitter.ts_free_tokens(&tokens[0], count)}
+	defer if count > 0 {
+		treesitter.ts_free_tokens(&tokens[0], count)
+	}
 
-	// Compute visible line window
-	start_line := max(0, editor.scroll_y / int(editor.line_height))
-	visible_lines := int(f32(window_h) / f32(editor.line_height)) + 2
-	end_line := min(len(lines), start_line + visible_lines)
+	// Pre-calculate line offsets for syntax highlighting
+	line_offsets := make([dynamic]int, len(lines), context.temp_allocator)
+	defer delete(line_offsets)
 
-	// Render line number + syntax highlighted text
+	current_offset := 0
+	for line, i in lines {
+		line_offsets[i] = current_offset
+		// Account for line content + newline character (except last line)
+		current_offset += len(line)
+		if i < len(lines) - 1 {
+			current_offset += 1 // newline
+		}
+	}
+
+	// Render visible lines only
 	for i := start_line; i < end_line; i += 1 {
 		y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
+
+		// Skip if completely off-screen
 		if y < -f32(editor.line_height) || y > f32(window_h) {
 			continue
 		}
 
-		// ----------------- line numbers ---------------
+		// Line numbers
 		line_num := i + 1
-		line_num_str: string
-		if line_num < 10 {
-			line_num_str = fmt.aprintf(" %d", line_num)
-		} else if line_num < 100 {
-			line_num_str = fmt.aprintf(" %d", line_num)
-		} else if line_num < 1000 {
-			line_num_str = fmt.aprintf(" %d", line_num)
-		} else {
-			line_num_str = fmt.aprintf(" %d", line_num)
-		}
+		line_num_str := fmt.aprintf("%d", line_num)
 		defer delete(line_num_str, editor.allocator)
 
-		original_color := editor.text_renderer.color
+		line_num_color := editor.theme.text
 		if i == editor.cursor_line_idx {
-			editor.text_renderer.color = editor.theme.line_number_text
-		} else {
-			editor.text_renderer.color = editor.theme.text
+			line_num_color = editor.theme.line_number_text
 		}
 
 		render_text(
@@ -600,37 +574,37 @@ render :: proc(editor: ^Editor) {
 			text_origin_x + 5,
 			y,
 			editor.allocator,
-			editor.text_renderer.color,
+			line_num_color,
 		)
-		// fmt.println("Token count: %d\n", count)
-		line_offset := 0
-		for j := 0; j < i; j += 1 {
-			line_offset += len(transmute([]u8)lines[j])
+
+		// Syntax highlighted text
+		if i < len(lines) && i < len(line_offsets) {
+			line_offset := line_offsets[i]
+			render_syntax_text(editor, lines[i], line_offset, y, tokens, text_area_x)
 		}
-		render_syntax_text(editor, lines[i], line_offset, y, tokens, editor_area_x)
 	}
 
-	// Cursor
-	cursor_x := int(gutter_width) - editor.scroll_x
+	// Cursor rendering
+	cursor_x := text_origin_x + gutter_width - f32(editor.scroll_x)
 	cursor_y :=
 		menu_offset_y + f32(editor.cursor_line_idx * int(editor.line_height) - editor.scroll_y)
 
-	if editor.cursor_line_idx < len(lines) && len(lines) > 0 {
-		original_line := get_line(&editor.gap_buffer, editor.cursor_line_idx, editor.allocator)
-		defer delete(original_line, editor.allocator)
-
+	// Calculate cursor X position
+	if editor.cursor_line_idx >= 0 && editor.cursor_line_idx < len(lines) {
 		current_line := lines[editor.cursor_line_idx]
-		cursor_pos_in_line := min(editor.cursor_col_idx, len(current_line))
+		cursor_pos_in_line := clamp(editor.cursor_col_idx, 0, len(current_line))
+
 		if cursor_pos_in_line > 0 {
 			text_before_cursor := current_line[:cursor_pos_in_line]
 			text_width := measure_text_width(&editor.text_renderer, text_before_cursor)
-			cursor_x += int(text_width)
+			cursor_x += text_width
 		}
 	}
 
+	// Blink cursor
 	cursor_rect := sdl.FRect {
-		x = f32(cursor_x),
-		y = f32(cursor_y),
+		x = cursor_x,
+		y = cursor_y,
 		w = 2.0,
 		h = f32(editor.line_height),
 	}
@@ -642,7 +616,7 @@ render :: proc(editor: ^Editor) {
 		_ = sdl.RenderFillRect(editor.renderer, &cursor_rect)
 	}
 
-	// Status bars, menus
+	// Status bars and menus
 	render_status_bar(
 		&editor.status_bar,
 		&editor.text_renderer,
@@ -657,13 +631,101 @@ render :: proc(editor: ^Editor) {
 	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
 	render_menu_bar(&editor.menu_bar, editor.renderer, window_w)
 
-	// TODO: Change this to support the setting.
+	// Minimap (if enabled)
 	if false {
 		render_minimap(&editor.minimap, editor, editor.renderer, window_w, window_h)
 	}
 
 	sdl.RenderPresent(editor.renderer)
 }
+
+// Helper to ensure render_syntax_text handles bounds properly
+render_syntax_text :: proc(
+	editor: ^Editor,
+	line_text: string,
+	line_offset: int,
+	y: f32,
+	tokens: []treesitter.Token,
+	line_x: f32,
+) {
+	if len(line_text) == 0 {
+		return
+	}
+
+	// Validate line_text
+	if !is_valid_text(line_text) {
+		return
+	}
+
+	current_x := line_x - f32(editor.scroll_x)
+	last_end := 0
+
+	for token in tokens {
+		// Skip tokens that don't overlap this line
+		if int(token.end) <= line_offset || int(token.start) >= line_offset + len(line_text) {
+			continue
+		}
+
+		// Calculate token position relative to current line
+		token_start := max(0, int(token.start) - line_offset)
+		token_end := min(len(line_text), int(token.end) - line_offset)
+
+		// Render any plain text before this token
+		if token_start > last_end {
+			plain_text := line_text[last_end:token_start]
+			if len(plain_text) > 0 {
+				render_text(
+					&editor.text_renderer,
+					editor.renderer,
+					plain_text,
+					current_x,
+					y,
+					editor.allocator,
+					editor.theme.text,
+				)
+				width := measure_text_width(&editor.text_renderer, plain_text)
+				current_x += width
+			}
+		}
+
+		// Render the token with syntax color
+		if token_start < token_end {
+			fragment := line_text[token_start:token_end]
+			if len(fragment) > 0 {
+				color := map_to_color(token.kind, editor.theme)
+				render_text(
+					&editor.text_renderer,
+					editor.renderer,
+					fragment,
+					current_x,
+					y,
+					editor.allocator,
+					color,
+				)
+				width := measure_text_width(&editor.text_renderer, fragment)
+				current_x += width
+			}
+			last_end = token_end
+		}
+	}
+
+	// Render any remaining plain text after the last token
+	if last_end < len(line_text) {
+		remaining_text := line_text[last_end:]
+		if len(remaining_text) > 0 {
+			render_text(
+				&editor.text_renderer,
+				editor.renderer,
+				remaining_text,
+				current_x,
+				y,
+				editor.allocator,
+				editor.theme.text,
+			)
+		}
+	}
+}
+
 
 handle_backspace :: proc(editor: ^Editor) {
 	if editor.has_selection {
