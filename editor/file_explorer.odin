@@ -40,7 +40,7 @@ init_file_explorer :: proc(
 	width: f32 = 250,
 	allocator: mem.Allocator = context.allocator,
 ) -> File_Explorer {
-	tr, ok := init_text_renderer(font_path, font_size, allocator)
+	tr, ok := init_text_renderer(font_path, font_size, nil, allocator)
 	if !ok {
 		fmt.println("File_Explorer: Broken font renderer")
 	}

@@ -46,7 +46,7 @@ init_menu_bar :: proc(
 	bar.is_visible = true
 	bar.allocator = allocator
 	bar.window_title = "Rune"
-	tr, ok := init_text_renderer(font_path, font_size, allocator)
+	tr, ok := init_text_renderer(font_path, font_size, renderer, allocator)
 	if !ok {
 		fmt.println("Menu_Bar: Broken text renderer")
 	}
