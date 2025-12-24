@@ -457,9 +457,38 @@ lsp_did_change :: proc(client: ^LSP_Client, uri: string, text: string) {
 
 lsp_handle_diagnostics :: proc(client: ^LSP_Client, params: json.Object) {
 	uri := params["uri"].(json.String) or_else ""
-	diagnostics := params["diagnostics"].(json.Array) or_else {}
+	diagnostics_array := params["diagnostics"].(json.Array) or_else {}
 
-	log.infof("Received %d diagnostics for %s", len(diagnostics), uri)
+	clear(&client.diagnostics)
+
+	// Parse new diagnostics
+	for diag_value in diagnostics_array {
+		diag_obj := diag_value.(json.Object)
+
+		range_obj := diag_obj["range"].(json.Object)
+		start_obj := range_obj["start"].(json.Object)
+		end_obj := range_obj["end"].(json.Object)
+
+		diagnostic := Diagnostic {
+			range = Range {
+				start = Position {
+					line = int(start_obj["line"].(json.Integer) or_else 0),
+					character = int(start_obj["character"].(json.Integer) or_else 0),
+				},
+				end = Position {
+					line = int(end_obj["line"].(json.Integer) or_else 0),
+					character = int(end_obj["character"].(json.Integer) or_else 0),
+				},
+			},
+			severity = Diagnostic_Severity(diag_obj["severity"].(json.Integer) or_else 1),
+			message = diag_obj["message"].(json.String) or_else "",
+			source = diag_obj["source"].(json.String) or_else "",
+		}
+
+		append(&client.diagnostics, diagnostic)
+	}
+
+	fmt.printf("Received %d diagnostics for %s\n", len(client.diagnostics), uri)
 }
 
 lsp_handle_show_message :: proc(client: ^LSP_Client, params: json.Object) {
@@ -586,7 +615,6 @@ editor_request_completion :: proc(editor: ^Editor, lsp_client: ^LSP_Client) {
 		return
 	}
 
-	// This passes the correct callback type expected by lsp_request_completion
 	lsp_request_completion(
 		lsp_client,
 		editor.cursor_line_idx,

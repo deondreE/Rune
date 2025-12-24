@@ -597,7 +597,6 @@ measure_text_width :: proc(tr: ^Text_Renderer, text: string) -> f32 {
 		return width
 	}
 
-	// Fallback measurement
 	text_cstr := strings.clone_to_cstring(text, context.allocator)
 	defer delete(text_cstr, context.allocator)
 

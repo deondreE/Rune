@@ -1028,7 +1028,8 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			return
 		}
 	case .Editor:
-	// continue below for normal editor input handling
+		// continue below for normal editor input handling
+		handle_menu_bar_event(&editor.menu_bar, event, editor.window)
 	case .None:
 		return
 	}
@@ -1129,18 +1130,16 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT
 
-		if event.key.mod == sdl.KMOD_LCTRL && event.key.key == ' ' {
-			if editor.lsp_enabled && editor.lsp_client != nil {
-				editor_request_completion(editor, editor.lsp_client)
-			}
-			return
-		}
-
 		// --- CTRL/ALT combinations ---
 		if event.key.mod == sdl.KMOD_LCTRL ||
 		   event.key.mod == sdl.KMOD_LALT ||
 		   event.key.mod == sdl.KMOD_LGUI {
 			switch event.key.key {
+			case ' ':
+				fmt.print("Testing")
+				if editor.lsp_enabled && editor.lsp_client != nil {
+					editor_request_completion(editor, editor.lsp_client)
+				}
 			case 'p':
 				// CTRL+P → Toggle Search
 				editor.search_bar.is_visible = !editor.search_bar.is_visible
@@ -1167,7 +1166,6 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 				copy_selection_to_clipboard(editor)
 				delete_selection(editor)
 				return
-
 			case 'v':
 				paste_from_clipboard(editor)
 				return
