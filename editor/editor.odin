@@ -301,7 +301,7 @@ init_editor :: proc(
 	editor.search_bar = init_search_bar(allocator)
 	editor._is_mouse_selecting = false
 	editor.focus_target = .Editor
-	editor.tab_bar = init_tab_bar(allocator, &editor.theme, &editor.text_renderer)
+	editor.tab_bar = init_tab_bar(allocator)
 
 	initial_text := `Hello, Deondre!
 This is your Odin code editor.
@@ -408,9 +408,7 @@ destroy_editor :: proc(editor: ^Editor) {
 	fmt.println("Editor destroyed.")
 }
 
-update :: proc(editor: ^Editor, dt: f64) {
-
-}
+update :: proc(editor: ^Editor, dt: f64) {}
 
 render_diagnostics :: proc(editor: ^Editor) {
 	if !editor.lsp_enabled || editor.lsp_client == nil {
@@ -465,7 +463,6 @@ render_diagnostics :: proc(editor: ^Editor) {
 
 		_ = sdl.SetRenderDrawColor(editor.renderer, color.r, color.g, color.b, color.a)
 
-		// draw wavy line
 		squiggle_y := y + f32(editor.line_height) - 2
 		step := f32(3)
 		current_x := x_start
@@ -488,7 +485,6 @@ render_diagnostics :: proc(editor: ^Editor) {
 }
 
 render :: proc(editor: ^Editor) {
-	// Clear background
 	_ = sdl.SetRenderDrawColor(
 		editor.renderer,
 		editor.theme.background.r,
@@ -503,6 +499,7 @@ render :: proc(editor: ^Editor) {
 	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
 
 	menu_offset_y := f32(editor.menu_bar.height) + 10
+	tab_bar_y := menu_offset_y
 	content_offset_y := menu_offset_y + f32(editor.tab_bar.height)
 	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
 	text_origin_x := f32(file_explorer_width)
@@ -511,9 +508,16 @@ render :: proc(editor: ^Editor) {
 
 	begin_frame(&editor.batch_renderer)
 
-	// render_tab_bar(&editor.tab_bar, editor.renderer, window_w, tab_bar_y)
+// I want tabs to be on the bottom
+	// render_tab_bar(
+    // &editor.tab_bar,
+    // editor.renderer,
+    // &editor.text_renderer,  
+    // editor.allocator,       
+    // window_w,
+    // tab_bar_y,
+    // )			
 	
-	// Search bar
 	render_search_bar(
 		&editor.search_bar,
 		&editor.text_renderer,
@@ -523,7 +527,6 @@ render :: proc(editor: ^Editor) {
 		window_h,
 	)
 
-	// File Explorer
 	if editor.file_explorer.is_visible {
 		render_file_explorer(&editor.file_explorer, editor.renderer, editor)
 
@@ -566,16 +569,13 @@ render :: proc(editor: ^Editor) {
 		return
 	}
 
-	// Compute visible line range
 	start_line := max(0, editor.scroll_y / int(editor.line_height))
 	visible_lines := int(f32(window_h) / f32(editor.line_height)) + 2
 	end_line := min(len(lines), start_line + visible_lines)
 
-	// Clamp to valid range
 	start_line = clamp(start_line, 0, len(lines))
 	end_line = clamp(end_line, 0, len(lines))
 
-	// Selection rendering
 	if editor.has_selection && start_sel != end_sel {
 		r_color := editor.theme.selection_bg
 
@@ -587,7 +587,7 @@ render :: proc(editor: ^Editor) {
 		render_end := min(sel_line_end + 1, end_line)
 
 		for i := render_start; i < render_end && i < len(lines); i += 1 {
-			y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
+			y := content_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
 
 			// Skip off-screen
 			if y < -f32(editor.line_height) || y > f32(window_h) {
