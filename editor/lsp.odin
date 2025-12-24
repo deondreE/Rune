@@ -1,6 +1,5 @@
 #+feature dynamic-literals
-package lsp
-import "../"
+package editor
 
 import "core:encoding/json"
 import "core:fmt"
@@ -12,6 +11,7 @@ import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:thread"
+import "core:time"
 
 LSP_Message :: struct {
 	jsonrpc: string,
@@ -108,7 +108,7 @@ Hover :: struct {
 
 LSP_Client :: struct {
 	allocator:           mem.Allocator,
-	process:             os2.Process,
+	process:             Maybe(os2.Process),
 	stdin:               ^os2.File,
 	stdout:              ^os2.File,
 	initialized:         bool,
@@ -120,6 +120,8 @@ LSP_Client :: struct {
 	running:             bool,
 	document_uri:        string,
 	document_version:    int,
+	diagnostics:         [dynamic]Diagnostic,
+	current_file_path:   string,
 }
 
 LSP_Request_Context :: struct {
@@ -324,7 +326,6 @@ lsp_send_request :: proc(
 		"params"  = params,
 	}
 
-	// Store callback
 	if callback != nil {
 		client.pending_requests[request_id] = LSP_Request_Context {
 			id       = request_id,
@@ -333,7 +334,6 @@ lsp_send_request :: proc(
 		}
 	}
 
-	// Serialize and send
 	lsp_write_message(client, request)
 
 	return request_id
@@ -430,30 +430,30 @@ lsp_did_change :: proc(client: ^LSP_Client, uri: string, text: string) {
 	lsp_send_notification(client, "textDocument/didChange", params)
 }
 
-lsp_request_completion :: proc(
-	client: ^LSP_Client,
-	uri: string,
-	line: int,
-	character: int,
-	callback: proc(items: []Completion_Item),
-) {
-	params := json.Object {
-		"textDocument" = json.Object{"uri" = json.String(uri)},
-		"position" = json.Object {
-			"line" = json.Integer(line),
-			"character" = json.Integer(character),
-		},
-	}
+// lsp_request_completion :: proc(
+// 	client: ^LSP_Client,
+// 	uri: string,
+// 	line: int,
+// 	character: int,
+// 	callback: proc(items: []Completion_Item),
+// ) {
+// 	params := json.Object {
+// 		"textDocument" = json.Object{"uri" = json.String(uri)},
+// 		"position" = json.Object {
+// 			"line" = json.Integer(line),
+// 			"character" = json.Integer(character),
+// 		},
+// 	}
 
-	lsp_send_request(
-		client,
-		"textDocument/completion",
-		params,
-		proc(result: json.Object, error: Maybe(LSP_Error)) {
-			// Parse completion items and call callback
-		},
-	)
-}
+// 	lsp_send_request(
+// 		client,
+// 		"textDocument/completion",
+// 		params,
+// 		proc(result: json.Object, error: Maybe(LSP_Error)) {
+// 			// Parse completion items and call callback
+// 		},
+// 	)
+// }
 
 lsp_handle_diagnostics :: proc(client: ^LSP_Client, params: json.Object) {
 	uri := params["uri"].(json.String) or_else ""
@@ -483,43 +483,119 @@ lsp_client_shutdown :: proc(client: ^LSP_Client) {
 
 	os2.close(client.stdin)
 	os2.close(client.stdout)
-	t, _ := os2.process_wait(client.process)
+	t, _ := os2.process_wait(client.process.(os2.Process))
 
 	delete(client.pending_requests)
 	delete(client.message_queue)
 }
 
+lsp_request_completion :: proc(
+	client: ^LSP_Client,
+	line: int,
+	character: int,
+	callback: proc(client: ^LSP_Client, items: []Completion_Item),
+) {
+	if !client.initialized {
+		return
+	}
+
+	params := json.Object {
+		"textDocument" = json.Object{"uri" = json.String(client.document_uri)},
+		"position" = json.Object {
+			"line" = json.Integer(line),
+			"character" = json.Integer(character),
+		},
+	}
+
+	lsp_send_request(
+		client,
+		"textDocument/completion",
+		params,
+		// proc(client: ^LSP_Client, result: json.Value, error: Maybe(LSP_Error)) {
+		// 	// Parse completion items
+		// 	if err, has_err := error.?; has_err {
+		// 		log.errorf("Completion request failed: %s", err.message)
+		// 		return
+		// 	}
+
+		// 	fmt.println("Received completion results")
+		// },
+		nil,
+	)
+}
+
 editor_init_lsp :: proc(
-	editor: ^editor.Editor,
+	editor: ^Editor,
 	server_command: string,
 	language_id: string,
-) -> bool {
+) -> (
+	^LSP_Client,
+	bool,
+) {
 	lsp_client := new(LSP_Client, editor.allocator)
 
 	if !lsp_client_init(lsp_client, editor.allocator) {
-		return false
+		fmt.println("Failed to initialize LSP client")
+		return nil, false
 	}
 
-	if !lsp_client_start(lsp_client, server_command, {}) {
-		return false
+	if !lsp_client_start(lsp_client, server_command, nil) {
+		fmt.println("Failed to start LSP server")
+		return nil, false
 	}
 
-	root_uri := fmt.tprintf("file://%s", os.get_current_directory())
+	// Initialize with workspace root
+	cwd, _ := os2.get_executable_directory(editor.allocator)
+	root_uri := fmt.tprintf("file://%s", cwd)
 	lsp_initialize(lsp_client, root_uri)
 
-	text := gap_buffer_to_string(&editor.gap_buffer)
-	uri := "file:///untitled.txt"
+	// Wait a bit for initialization
+	time.sleep(500 * time.Millisecond)
+
+	// Open current document
+	text := get_text(&editor.gap_buffer, editor.allocator)
+	defer delete(text, editor.allocator)
+
+	file_path := lsp_client.current_file_path
+	if len(file_path) == 0 {
+		file_path = "untitled.odin"
+	}
+
+	uri := fmt.tprintf("file://%s", file_path)
 	lsp_did_open(lsp_client, uri, language_id, text)
 
-	return true
+	// Store in editor (add this field to Editor struct)
+	// editor.lsp_client = lsp_client
+
+	return lsp_client, true
 }
 
-editor_notify_lsp_change :: proc(editor: ^editor.Editor, lsp_client: ^LSP_Client) {
+
+editor_notify_lsp_change :: proc(editor: ^Editor, lsp_client: ^LSP_Client) {
 	text := gap_buffer_to_string(&editor.gap_buffer)
 	lsp_did_change(lsp_client, lsp_client.document_uri, text)
 }
 
-gap_buffer_to_string :: proc(buffer: ^editor.Gap_Buffer) -> string {
+gap_buffer_to_string :: proc(buffer: ^Gap_Buffer) -> string {
 	// Implementation depends on your Gap_Buffer structure
 	return ""
+}
+
+editor_request_completion :: proc(editor: ^Editor, lsp_client: ^LSP_Client) {
+	if lsp_client == nil || !lsp_client.initialized {
+		return
+	}
+
+	// This passes the correct callback type expected by lsp_request_completion
+	lsp_request_completion(
+		lsp_client,
+		editor.cursor_line_idx,
+		editor.cursor_col_idx,
+		proc(client: ^LSP_Client, items: []Completion_Item) {
+			fmt.println("Got completion items:")
+			for item in items {
+				fmt.printf("  - %s\n", item.label)
+			}
+		},
+	)
 }

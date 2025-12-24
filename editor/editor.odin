@@ -48,6 +48,8 @@ Editor :: struct {
 	default_white_texture: ^sdl.Texture,
 	treesitter:            treesitter.Treesitter,
 	focus_target:          UI_Focus_Target,
+	lsp_client:            ^LSP_Client,
+	lsp_enabled:           bool,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -98,6 +100,10 @@ paste_from_clipboard :: proc(editor: ^Editor) {
 	editor.cursor_logical_pos += len(text_bytes)
 	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 	update_cursor_position(editor)
+
+	if editor.lsp_enabled && editor.lsp_client != nil {
+		editor_notify_lsp_change(editor, editor.lsp_client)
+	}
 }
 
 get_prev_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
@@ -238,7 +244,6 @@ move_cursor_right :: proc(editor: ^Editor) {
 insert_char :: proc(editor: ^Editor, r: rune) {
 	fmt.printf("insert_char called with rune: %d (char: '%c')\n", r, r)
 	if editor.has_selection {
-		// Maybe you don't want to just delete the selection here.
 		delete_selection(editor)
 	}
 
@@ -254,6 +259,10 @@ insert_char :: proc(editor: ^Editor, r: rune) {
 	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 
 	update_parse_tree(editor)
+
+	if editor.lsp_enabled && editor.lsp_client != nil {
+		editor_notify_lsp_change(editor, editor.lsp_client)
+	}
 }
 
 init_editor :: proc(
@@ -321,6 +330,7 @@ Let's make some magic happen!`
 		editor.cursor_col_idx = len(initial_text)
 	}
 
+	// TODO: Look into making this process more efficient.
 	editor.file_explorer = init_file_explorer(
 		".",
 		0,
@@ -338,7 +348,16 @@ Let's make some magic happen!`
 		renderer,
 		&editor,
 	)
-	// editor.lsp = lsp.init_lsp_thread("ols", editor.allocator)
+
+	editor.lsp_enabled = true
+	if editor.lsp_enabled {
+		lsp, success := editor_init_lsp(&editor, "ols", "odin")
+		if !success {
+			fmt.println("LSP initialization failed, continuing without LSP")
+			editor.lsp_enabled = false
+		}
+		editor.lsp_client = lsp
+	}
 
 	fmt.println("Editor initialized.")
 	return editor
@@ -363,14 +382,96 @@ destroy_editor :: proc(editor: ^Editor) {
 	destroy_file_explorer(&editor.file_explorer)
 	destroy_text_renderer(&editor.text_renderer)
 	destroy_batch_renderer(&editor.batch_renderer)
+
 	if editor.default_white_texture != nil {
 		sdl.DestroyTexture(editor.default_white_texture)
 	}
+
+	if editor.lsp_client != nil {
+		lsp_client_shutdown(editor.lsp_client)
+		free(editor.lsp_client, editor.allocator)
+	}
+
 	fmt.println("Editor destroyed.")
 }
 
 update :: proc(editor: ^Editor, dt: f64) {
 
+}
+
+render_diagnostics :: proc(editor: ^Editor) {
+	if !editor.lsp_enabled || editor.lsp_client == nil {
+		return
+	}
+
+	lines := get_lines(&editor.gap_buffer, editor.allocator)
+	defer {
+		for line in lines {
+			delete(line, editor.allocator)
+		}
+		delete(lines, editor.allocator)
+	}
+	menu_offset_y := f32(editor.menu_bar.height) + 10
+	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
+	text_origin_x := f32(file_explorer_width)
+	gutter_width := f32(60)
+
+	// renders diagnostic squiggles
+	for diagnostic in editor.lsp_client.diagnostics {
+		line_idx := diagnostic.range.start.line
+		if line_idx < 0 || line_idx >= len(lines) {
+			continue
+		}
+
+		y := menu_offset_y + f32(line_idx * int(editor.line_height) - editor.scroll_y)
+		line_text := lines[line_idx]
+
+		start_col := diagnostic.range.start.character
+		end_col := diagnostic.range.end.character
+
+		start_col = clamp(start_col, 0, len(line_text))
+		end_col = clamp(end_col, 0, len(line_text))
+
+		width_start := measure_text_width(&editor.text_renderer, line_text[:start_col])
+		width_end := measure_text_width(&editor.text_renderer, line_text[:end_col])
+
+		x_start := text_origin_x + gutter_width + width_start - f32(editor.scroll_x)
+		x_end := text_origin_x + gutter_width + width_end - f32(editor.scroll_x)
+
+		color: sdl.Color
+		switch diagnostic.severity {
+		case .Error:
+			color = {255, 0, 0, 255} // Red
+		case .Warning:
+			color = {255, 165, 0, 255} // Orange
+		case .Information:
+			color = {0, 191, 255, 255} // Light blue
+		case .Hint:
+			color = {200, 200, 200, 255} // Gray
+		}
+
+		_ = sdl.SetRenderDrawColor(editor.renderer, color.r, color.g, color.b, color.a)
+
+		// draw wavy line
+		squiggle_y := y + f32(editor.line_height) - 2
+		step := f32(3)
+		current_x := x_start
+
+		for current_x < x_end {
+			next_x := min(current_x + step, x_end)
+			wave_offset := f32(2) * ((int(current_x / step) % 2 == 0) ? f32(1) : f32(-1))
+
+			_ = sdl.RenderLine(
+				editor.renderer,
+				current_x,
+				squiggle_y + wave_offset,
+				next_x,
+				squiggle_y - wave_offset,
+			)
+
+			current_x = next_x
+		}
+	}
 }
 
 render :: proc(editor: ^Editor) {
@@ -445,6 +546,9 @@ render :: proc(editor: ^Editor) {
 		)
 		render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
 		render_menu_bar(&editor.menu_bar, editor.renderer, window_w)
+
+		render_diagnostics(editor)
+
 		sdl.RenderPresent(editor.renderer)
 		return
 	}
@@ -747,6 +851,10 @@ handle_backspace :: proc(editor: ^Editor) {
 	}
 
 	update_parse_tree(editor)
+
+	if editor.lsp_enabled && editor.lsp_client != nil {
+		editor_notify_lsp_change(editor, editor.lsp_client)
+	}
 }
 
 delete_char_from_string :: proc(s: string, index: int, allocator: mem.Allocator) -> string {
@@ -1020,6 +1128,13 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT
+
+		if event.key.mod == sdl.KMOD_LCTRL && event.key.key == ' ' {
+			if editor.lsp_enabled && editor.lsp_client != nil {
+				editor_request_completion(editor, editor.lsp_client)
+			}
+			return
+		}
 
 		// --- CTRL/ALT combinations ---
 		if event.key.mod == sdl.KMOD_LCTRL ||
