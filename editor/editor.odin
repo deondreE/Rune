@@ -50,6 +50,7 @@ Editor :: struct {
 	focus_target:          UI_Focus_Target,
 	lsp_client:            ^LSP_Client,
 	lsp_enabled:           bool,
+	tab_bar: Tab_Bar,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -300,10 +301,20 @@ init_editor :: proc(
 	editor.search_bar = init_search_bar(allocator)
 	editor._is_mouse_selecting = false
 	editor.focus_target = .Editor
+	editor.tab_bar = init_tab_bar(allocator, &editor.theme, &editor.text_renderer)
 
 	initial_text := `Hello, Deondre!
 This is your Odin code editor.
 Let's make some magic happen!`
+
+	tab_idx := create_tab(&editor.tab_bar, "Untitled")
+	editor.tab_bar.active_tab_idx = tab_idx
+
+
+    if tab := get_active_tab(&editor.tab_bar); tab != nil {
+        insert_bytes(&tab.gap_buffer, transmute([]u8)initial_text, editor.allocator)
+        load_tab_state_to_editor(&editor, tab)
+    }
 
 
 	white_surface := sdl.CreateSurface(1, 1, sdl.PixelFormat.RGBA32)
@@ -387,6 +398,8 @@ destroy_editor :: proc(editor: ^Editor) {
 		sdl.DestroyTexture(editor.default_white_texture)
 	}
 
+	destroy_tab_bar(&editor.tab_bar)
+	
 	if editor.lsp_client != nil {
 		lsp_client_shutdown(editor.lsp_client)
 		free(editor.lsp_client, editor.allocator)
@@ -490,6 +503,7 @@ render :: proc(editor: ^Editor) {
 	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
 
 	menu_offset_y := f32(editor.menu_bar.height) + 10
+	content_offset_y := menu_offset_y + f32(editor.tab_bar.height)
 	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
 	text_origin_x := f32(file_explorer_width)
 	editor_area_x := f32(file_explorer_width)
@@ -497,6 +511,8 @@ render :: proc(editor: ^Editor) {
 
 	begin_frame(&editor.batch_renderer)
 
+	// render_tab_bar(&editor.tab_bar, editor.renderer, window_w, tab_bar_y)
+	
 	// Search bar
 	render_search_bar(
 		&editor.search_bar,
@@ -521,7 +537,6 @@ render :: proc(editor: ^Editor) {
 		_ = sdl.RenderFillRect(editor.renderer, &divider_rect)
 	}
 
-	// Get lines ONCE for the entire render
 	lines := get_lines(&editor.gap_buffer, editor.allocator)
 	defer {
 		for line in lines {
@@ -530,9 +545,7 @@ render :: proc(editor: ^Editor) {
 		delete(lines, editor.allocator)
 	}
 
-	// Validate lines array
 	if len(lines) == 0 {
-		// Render empty editor UI
 		render_status_bar(
 			&editor.status_bar,
 			&editor.text_renderer,
@@ -656,7 +669,6 @@ render :: proc(editor: ^Editor) {
 	for i := start_line; i < end_line; i += 1 {
 		y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
 
-		// Skip if completely off-screen
 		if y < -f32(editor.line_height) || y > f32(window_h) {
 			continue
 		}
