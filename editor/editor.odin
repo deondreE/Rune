@@ -105,6 +105,10 @@ paste_from_clipboard :: proc(editor: ^Editor) {
 	if editor.lsp_enabled && editor.lsp_client != nil {
 		editor_notify_lsp_change(editor, editor.lsp_client)
 	}
+
+	if tab := get_active_tab(&editor.tab_bar); tab != nil {
+		mark_tab_modified(tab)
+	}
 }
 
 get_prev_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
@@ -263,6 +267,10 @@ insert_char :: proc(editor: ^Editor, r: rune) {
 
 	if editor.lsp_enabled && editor.lsp_client != nil {
 		editor_notify_lsp_change(editor, editor.lsp_client)
+	}
+
+	if tab := get_active_tab(&editor.tab_bar); tab != nil {
+		mark_tab_modified(tab)
 	}
 }
 
@@ -508,15 +516,14 @@ render :: proc(editor: ^Editor) {
 
 	begin_frame(&editor.batch_renderer)
 
-// I want tabs to be on the bottom
-	// render_tab_bar(
-    // &editor.tab_bar,
-    // editor.renderer,
-    // &editor.text_renderer,  
-    // editor.allocator,       
-    // window_w,
-    // tab_bar_y,
-    // )			
+	render_tab_bar(
+    &editor.tab_bar,
+    editor.renderer,
+    &editor.text_renderer,  
+    editor.allocator,       
+    window_w,
+	window_h - i32(editor.status_bar.height)
+    )			
 	
 	render_search_bar(
 		&editor.search_bar,
@@ -587,7 +594,7 @@ render :: proc(editor: ^Editor) {
 		render_end := min(sel_line_end + 1, end_line)
 
 		for i := render_start; i < render_end && i < len(lines); i += 1 {
-			y := content_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
+			y := menu_offset_y + f32(i * int(editor.line_height) - editor.scroll_y)
 
 			// Skip off-screen
 			if y < -f32(editor.line_height) || y > f32(window_h) {
@@ -867,6 +874,10 @@ handle_backspace :: proc(editor: ^Editor) {
 	if editor.lsp_enabled && editor.lsp_client != nil {
 		editor_notify_lsp_change(editor, editor.lsp_client)
 	}
+
+	if tab := get_active_tab(&editor.tab_bar); tab != nil {
+		mark_tab_modified(tab)
+	}
 }
 
 delete_char_from_string :: proc(s: string, index: int, allocator: mem.Allocator) -> string {
@@ -996,6 +1007,9 @@ select_word_at_pos :: proc(editor: ^Editor, pos: int) {
 
 handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	menu_offset_y := f32(editor.menu_bar.height) + 10
+	window_w: i32
+	window_h: i32
+	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
 
 	// --- Focus handling section ---
 	if editor.search_bar.is_visible {
@@ -1029,6 +1043,18 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 				editor.focus_target = .Editor
 			}
 		}
+	}
+
+	if handle_tab_bar_event(&editor.tab_bar, event, window_h) {
+		if prev_tab := get_active_tab(&editor.tab_bar); prev_tab != nil {
+			load_tab_state_to_editor(editor, prev_tab)
+		}
+	
+		if new_tab := get_active_tab(&editor.tab_bar); new_tab != nil {
+			load_tab_state_to_editor(editor, new_tab)
+		}
+
+		return 
 	}
 
 	switch editor.focus_target {
@@ -1142,7 +1168,6 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	case sdl.EventType.KEY_DOWN:
 		shift_held := event.key.mod == sdl.KMOD_LSHIFT
 
-		// --- CTRL/ALT combinations ---
 		if event.key.mod == sdl.KMOD_LCTRL ||
 		   event.key.mod == sdl.KMOD_LALT ||
 		   event.key.mod == sdl.KMOD_LGUI {
@@ -1170,6 +1195,39 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 				editor.has_selection = true
 				return
 
+			case 'w':
+				if len(editor.tab_bar.tabs) > 0 {
+					old_idx := editor.tab_bar.active_tab_idx
+					close_tab(&editor.tab_bar, old_idx)
+					
+					// Load new active tab
+					if tab := get_active_tab(&editor.tab_bar); tab != nil {
+						load_tab_state_to_editor(editor, tab)
+					} else {
+						// No tabs left, create a new one
+						tab_idx := create_tab(&editor.tab_bar, "Untitled")
+						editor.tab_bar.active_tab_idx = tab_idx
+						if new_tab := get_active_tab(&editor.tab_bar); new_tab != nil {
+							load_tab_state_to_editor(editor, new_tab)
+						}
+					}
+				}
+				return
+			case 's':
+				if tab := get_active_tab(&editor.tab_bar); tab != nil {
+					save_editor_state_to_tab(editor, tab)
+					if len(tab.file_path) == 0 {
+						// TODO: Show save dialog
+						fmt.println("Save as... (not implemented)")
+					} else {
+						save_tab(tab)
+					}
+				}
+				return
+			case 'o':
+				// TODO: Show file picker dialog
+				fmt.println("Open file... (not implemented)")
+				return
 			case 'c':
 				copy_selection_to_clipboard(editor)
 				return
@@ -1210,7 +1268,6 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		// --- Normal keypresses ---
 		switch event.key.key {
 		case 27:
-			// Escape — clear UI focus
 			editor.focus_target = .Editor
 			clear_selection(editor)
 
@@ -1312,10 +1369,8 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 }
 
 load_text_into_editor :: proc(editor: ^Editor, text: string) {
-	// Clear old buffer
 	gap_buffer_clear(&editor.gap_buffer)
 
-	// Parameters
 	chunk_size := 64 * 1024 // 64 KB chunks (tune this to your use case)
 	total_len := len(text)
 	offset := 0
@@ -1324,17 +1379,14 @@ load_text_into_editor :: proc(editor: ^Editor, text: string) {
 		remaining := total_len - offset
 		size := math.min(chunk_size, remaining)
 
-		// Extract chunk slice
 		chunk := text[offset:offset + size]
 		bytes := transmute([]u8)chunk
 
-		// Insert the chunk into the buffer
 		insert_bytes(&editor.gap_buffer, bytes, editor.allocator)
 
 		offset += size
 	}
 
-	// After full load, reset gap position and cursor
 	editor.cursor_logical_pos = 0
 	move_gap(&editor.gap_buffer, 0)
 	update_cursor_position(editor)

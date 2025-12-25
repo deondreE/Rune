@@ -33,20 +33,18 @@ Tab_Bar :: struct {
 	allocator:      mem.Allocator,
 }
 
-init_tab_bar :: proc(
-	allocator: mem.Allocator,
-) -> Tab_Bar {
+init_tab_bar :: proc(allocator: mem.Allocator) -> Tab_Bar {
 	bar := Tab_Bar {
-		tabs = make([dynamic]Tab, allocator),
+		tabs           = make([dynamic]Tab, allocator),
 		active_tab_idx = -1,
-		next_tab_id = 1,
-		height = 32,
-		tab_width = 180,
-		hover_tab_idx = -1,
-		hover_close = -1,
-		allocator = allocator,
+		next_tab_id    = 1,
+		height         = 32,
+		tab_width      = 180,
+		hover_tab_idx  = -1,
+		hover_close    = -1,
+		allocator      = allocator,
 	}
-	
+
 	return bar
 }
 
@@ -83,13 +81,16 @@ create_tab :: proc(bar: ^Tab_Bar, title: string, file_path: string = "") -> int 
 	return len(bar.tabs) - 1
 }
 
+// Open a file in a new tab
 open_file_in_tab :: proc(bar: ^Tab_Bar, file_path: string) -> (int, bool) {
+	// Check if file is already open
 	for tab, idx in bar.tabs {
 		if tab.file_path == file_path {
 			return idx, true
 		}
 	}
 
+	// Read file
 	data, ok := os.read_entire_file(file_path, bar.allocator)
 	if !ok {
 		fmt.printf("Failed to open file: %s\n", file_path)
@@ -97,6 +98,7 @@ open_file_in_tab :: proc(bar: ^Tab_Bar, file_path: string) -> (int, bool) {
 	}
 	defer delete(data, bar.allocator)
 
+	// Extract filename for tab title
 	filename := file_path
 	if last_slash := strings.last_index_byte(file_path, '/'); last_slash != -1 {
 		filename = file_path[last_slash + 1:]
@@ -118,18 +120,22 @@ close_tab :: proc(bar: ^Tab_Bar, idx: int) -> bool {
 		return false
 	}
 
+	// Check if modified and prompt to save (simplified version)
 	tab := &bar.tabs[idx]
 	if tab.is_modified {
 		fmt.printf("Tab '%s' has unsaved changes\n", tab.title)
 		// TODO: Show save dialog
 	}
 
+	// Cleanup tab resources
 	delete(tab.title, bar.allocator)
 	delete(tab.file_path, bar.allocator)
 	destroy_gap_buffer(&tab.gap_buffer, bar.allocator)
 
+	// Remove from array
 	ordered_remove(&bar.tabs, idx)
 
+	// Update active tab index
 	if bar.active_tab_idx == idx {
 		if len(bar.tabs) > 0 {
 			bar.active_tab_idx = min(idx, len(bar.tabs) - 1)
@@ -143,6 +149,7 @@ close_tab :: proc(bar: ^Tab_Bar, idx: int) -> bool {
 	return true
 }
 
+// Switch to a tab
 switch_to_tab :: proc(bar: ^Tab_Bar, idx: int) {
 	if idx >= 0 && idx < len(bar.tabs) {
 		bar.active_tab_idx = idx
@@ -197,18 +204,21 @@ load_tab_state_to_editor :: proc(editor: ^Editor, tab: ^Tab) {
 	move_gap(&editor.gap_buffer, editor.cursor_logical_pos)
 }
 
-// Render tab bar
+// Render tab bar at bottom of window
 render_tab_bar :: proc(
 	bar: ^Tab_Bar,
 	renderer: ^sdl.Renderer,
 	text_renderer: ^Text_Renderer,
 	allocator: mem.Allocator,
 	window_w: i32,
-	y_offset: f32,
+	window_h: i32,
 ) {
 	if len(bar.tabs) == 0 {
 		return
 	}
+
+	// Calculate position at bottom
+	y_offset := f32(window_h) - f32(bar.height)
 
 	// Background
 	bg_rect := sdl.FRect {
@@ -247,11 +257,11 @@ render_tab_bar :: proc(
 		}
 		_ = sdl.RenderFillRect(renderer, &tab_rect)
 
-		// Active tab indicator
+		// Active tab indicator at bottom
 		if is_active {
 			indicator_rect := sdl.FRect {
 				x = x_offset,
-				y = y_offset,
+				y = y_offset + f32(bar.height) - 2, // Bottom of tab
 				w = bar.tab_width,
 				h = 2,
 			}
@@ -364,17 +374,24 @@ render_tab_bar :: proc(
 	_ = sdl.RenderLine(
 		renderer,
 		0,
-		y_offset + f32(bar.height),
+		y_offset, // Top border instead of bottom
 		f32(window_w),
-		y_offset + f32(bar.height),
+		y_offset,
 	)
 }
 
-// Handle tab bar events
-handle_tab_bar_event :: proc(bar: ^Tab_Bar, event: ^sdl.Event, y_offset: f32) -> bool {
+// Handle tab bar events at bottom
+handle_tab_bar_event :: proc(
+	bar: ^Tab_Bar,
+	event: ^sdl.Event,
+	window_h: i32,
+) -> bool {
 	if len(bar.tabs) == 0 {
 		return false
 	}
+
+	// Calculate bottom position
+	y_offset := f32(window_h) - f32(bar.height)
 
 	mouse_x: f32
 	mouse_y: f32
