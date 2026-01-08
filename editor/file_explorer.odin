@@ -297,8 +297,8 @@ update_file_explorer :: proc(fe: ^File_Explorer, dt: f32) {
 
 	// Clamp scroll to valid range
 	max_scroll := f32(max(0, len(fe.entries) - fe.visible_height))
-	fe.scroll_offset = clamp(fe.scroll_offset, 0, max_scroll)
-	fe.scroll_target = clamp(fe.scroll_target, 0, max_scroll)
+	fe.scroll_offset = f32(clamp(int(fe.scroll_offset), 0, int(max_scroll)))
+	fe.scroll_target = f32(clamp(int(fe.scroll_target), 0, int(max_scroll)))
 }
 
 render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer, editor: ^Editor) {
@@ -545,11 +545,11 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> boo
 
 		if in_bounds {
 			scroll_amount: f32 = 3.0
-			fe.scroll_target = clamp(
-				fe.scroll_target - f32(event.wheel.y) * scroll_amount,
+			fe.scroll_target = f32(clamp(
+				int(fe.scroll_target - f32(event.wheel.y) * scroll_amount),
 				0,
-				f32(max(0, len(fe.entries) - fe.visible_height)),
-			)
+				int(f32(max(0, len(fe.entries) - fe.visible_height))),
+			))
 		}
 	}
 

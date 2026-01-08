@@ -28,6 +28,27 @@ Token :: struct {
 	_pad:  u16,
 }
 
+TOKEN_FUNCTION :: 1
+TOKEN_FUNCTION_CALL :: 2
+TOKEN_TYPE :: 3
+TOKEN_TYPE_BUILTIN :: 4
+TOKEN_KEYWORD :: 5
+TOKEN_STRING :: 6
+TOKEN_CHARACTER :: 7
+TOKEN_NUMBER :: 8
+TOKEN_BOOLEAN :: 9
+TOKEN_COMMENT :: 10
+TOKEN_OPERATOR :: 11
+TOKEN_PUNCTUATION :: 12
+TOKEN_VARIABLE :: 13
+TOKEN_CONSTANT :: 14
+TOKEN_FIELD :: 15
+TOKEN_PARAMETER :: 16
+TOKEN_MACRO :: 17
+TOKEN_TRAIT :: 18
+TOKEN_DIRECTIVE :: 19
+TOKEN_DECORATOR :: 20
+
 @(default_calling_convention = "c")
 foreign tsgateway {
 	ts_parse :: proc(source: cstring, lang_id: i32) -> TSResult ---
@@ -72,6 +93,7 @@ get_tokens_for_source :: proc(
 	return tokens, len
 }
 
+// Get highlight tokens with proper semantic information.
 get_hightlight_tokens :: proc(
 	source: string,
 	lang: Lang,
@@ -105,6 +127,19 @@ use_tokens :: proc(
 	body(tokens)
 }
 
+// Convenience scoped wrapper for highlight tokens 
+use_highlight_tokens :: proc (
+	source: string,
+	lang: Lang,
+	allocator := context.allocator,
+	body: proc(tokens: []Token),
+) {
+	tokens, count := get_hightlight_tokens(source, lang, allocator)
+	if count == 0 {return}
+	defer ts_free_tokens(&tokens[0], count)
+	body(tokens)
+}
+
 // Detemines the lang from the filpath.
 get_lang_from_filepath :: proc(path: string) -> Lang {
 	lower_path := strings.to_lower(path)
@@ -124,6 +159,33 @@ get_lang_from_filepath :: proc(path: string) -> Lang {
 	if strings.has_suffix(name_part, ".py") {return Lang.Python}
 
 	return Lang.Odin
+}
+
+// Helper to get token kind name for debugging
+get_token_kind_name :: proc(kind: u16) -> string {
+	switch kind {
+	case TOKEN_FUNCTION: return "function"
+	case TOKEN_FUNCTION_CALL: return "function.call"
+	case TOKEN_TYPE: return "type"
+	case TOKEN_TYPE_BUILTIN: return "type.builtin"
+	case TOKEN_KEYWORD: return "keyword"
+	case TOKEN_STRING: return "string"
+	case TOKEN_CHARACTER: return "character"
+	case TOKEN_NUMBER: return "number"
+	case TOKEN_BOOLEAN: return "boolean"
+	case TOKEN_COMMENT: return "comment"
+	case TOKEN_OPERATOR: return "operator"
+	case TOKEN_PUNCTUATION: return "punctuation"
+	case TOKEN_VARIABLE: return "variable"
+	case TOKEN_CONSTANT: return "constant"
+	case TOKEN_FIELD: return "field"
+	case TOKEN_PARAMETER: return "parameter"
+	case TOKEN_MACRO: return "macro"
+	case TOKEN_TRAIT: return "trait"
+	case TOKEN_DIRECTIVE: return "directive"
+	case TOKEN_DECORATOR: return "decorator"
+	case: return "unknown"
+	}
 }
 
 // Sets language context.
@@ -164,6 +226,18 @@ parse_source :: proc(
 debug_print :: proc(ctx: ^Treesitter) {
 	fmt.println("Tree-sitter AST:")
 	fmt.println(ctx.ast_string)
+}
+
+// Debug print tokens with their kinds
+debug_print_tokens :: proc(tokens: []Token, source: string) {
+	fmt.println("Tokens:")
+	for token in tokens {
+		if int(token.end) <= len(source) && int(token.start) <= len(source) {
+			text := source[token.start:token.end]
+			kind_name := get_token_kind_name(token.kind)
+			fmt.printf("  [%d-%d] %s: '%s'\n", token.start, token.end, kind_name, text)
+		}
+	}
 }
 
 TreeSitter_Parse :: proc(source: string, lang: Lang) -> string {

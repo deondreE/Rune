@@ -519,14 +519,14 @@ render :: proc(editor: ^Editor) {
 	begin_frame(&editor.batch_renderer)
 
 	render_tab_bar(
-    &editor.tab_bar,
-    editor.renderer,
-    &editor.text_renderer,  
-    editor.allocator,       
-    window_w,
-	window_h - i32(editor.status_bar.height)
-    )			
-	
+		&editor.tab_bar,
+		editor.renderer,
+		&editor.text_renderer,
+		editor.allocator,
+		window_w,
+		window_h - i32(editor.status_bar.height),
+	)
+
 	render_search_bar(
 		&editor.search_bar,
 		&editor.text_renderer,
@@ -651,7 +651,10 @@ render :: proc(editor: ^Editor) {
 	full_source := get_text(&editor.gap_buffer, editor.allocator)
 	defer delete(full_source, editor.allocator)
 
-	tokens, count := treesitter.get_hightlight_tokens(
+	// Get highlight tokens (fixed function name)
+	tokens: []treesitter.Token
+	count: int
+	tokens, count = treesitter.get_hightlight_tokens(
 		full_source,
 		editor.treesitter.lang,
 		context.temp_allocator,
@@ -705,7 +708,23 @@ render :: proc(editor: ^Editor) {
 		// Syntax highlighted text
 		if i < len(lines) && i < len(line_offsets) {
 			line_offset := line_offsets[i]
-			render_syntax_text(editor, lines[i], line_offset, y, tokens, text_area_x)
+			line_text := lines[i]
+			
+			// Only pass tokens if we have them
+			if count > 0 {
+				render_syntax_text(editor, line_text, line_offset, y, tokens, text_area_x)
+			} else {
+				// Fallback to plain text rendering if no tokens
+				render_text(
+					&editor.text_renderer,
+					editor.renderer,
+					line_text,
+					text_area_x - f32(editor.scroll_x),
+					y,
+					editor.allocator,
+					editor.theme.text,
+				)
+			}
 		}
 	}
 
@@ -760,12 +779,20 @@ render :: proc(editor: ^Editor) {
 	if true {
 		render_minimap(&editor.minimap, editor, editor.renderer, window_w, window_h)
 	}
-	
+
 	if true {
 		render_terminal(&editor.terminal, editor.renderer)
 	}
-	
+
+	render_diagnostics(editor)
+
 	sdl.RenderPresent(editor.renderer)
+}
+
+clamp :: proc(value, min_val, max_val: int) -> int {
+	if value < min_val do return min_val
+	if value > max_val do return max_val
+	return value
 }
 
 // Helper to ensure render_syntax_text handles bounds properly
@@ -777,29 +804,46 @@ render_syntax_text :: proc(
 	tokens: []treesitter.Token,
 	line_x: f32,
 ) {
-	if len(line_text) == 0 {
+	if len(line_text) == 0 || !is_valid_text(line_text) {
 		return
 	}
-
-	// Validate line_text
-	if !is_valid_text(line_text) {
-		return
-	}
-
+	
+	line_end := line_offset + len(line_text)
 	current_x := line_x - f32(editor.scroll_x)
 	last_end := 0
-
+	
 	for token in tokens {
-		// Skip tokens that don't overlap this line
-		if int(token.end) <= line_offset || int(token.start) >= line_offset + len(line_text) {
+		token_start_abs := int(token.start)
+		token_end_abs := int(token.end)
+		
+		// Skip tokens completely before this line
+		if token_end_abs <= line_offset {
 			continue
 		}
-
+		
+		// Stop processing tokens completely after this line
+		if token_start_abs >= line_end {
+			break
+		}
+		
+		// Skip invalid tokens
+		if token_end_abs <= token_start_abs {
+			continue
+		}
+		
 		// Calculate token position relative to current line
-		token_start := max(0, int(token.start) - line_offset)
-		token_end := min(len(line_text), int(token.end) - line_offset)
-
-		// Render any plain text before this token
+		token_start := max(0, token_start_abs - line_offset)
+		token_end := min(len(line_text), token_end_abs - line_offset)
+		
+		if token_start < last_end {
+			token_start = last_end
+		}
+		
+		if token_start >= token_end {
+			continue
+		}
+		
+		// Render plain text gap before token
 		if token_start > last_end {
 			plain_text := line_text[last_end:token_start]
 			if len(plain_text) > 0 {
@@ -812,33 +856,28 @@ render_syntax_text :: proc(
 					editor.allocator,
 					editor.theme.text,
 				)
-				width := measure_text_width(&editor.text_renderer, plain_text)
-				current_x += width
+				current_x += measure_text_width(&editor.text_renderer, plain_text)
 			}
 		}
-
-		// Render the token with syntax color
-		if token_start < token_end {
-			fragment := line_text[token_start:token_end]
-			if len(fragment) > 0 {
-				color := map_to_color(token.kind, editor.theme)
-				render_text(
-					&editor.text_renderer,
-					editor.renderer,
-					fragment,
-					current_x,
-					y,
-					editor.allocator,
-					color,
-				)
-				width := measure_text_width(&editor.text_renderer, fragment)
-				current_x += width
-			}
-			last_end = token_end
+		
+		fragment := line_text[token_start:token_end]
+		if len(fragment) > 0 {
+			color := map_to_color(token.kind, editor.theme)
+			render_text(
+				&editor.text_renderer,
+				editor.renderer,
+				fragment,
+				current_x,
+				y,
+				editor.allocator,
+				color,
+			)
+			current_x += measure_text_width(&editor.text_renderer, fragment)
 		}
+		
+		last_end = token_end
 	}
-
-	// Render any remaining plain text after the last token
+	
 	if last_end < len(line_text) {
 		remaining_text := line_text[last_end:]
 		if len(remaining_text) > 0 {
@@ -854,7 +893,6 @@ render_syntax_text :: proc(
 		}
 	}
 }
-
 
 handle_backspace :: proc(editor: ^Editor) {
 	if editor.has_selection {
