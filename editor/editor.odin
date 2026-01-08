@@ -755,7 +755,7 @@ render :: proc(editor: ^Editor) {
 	render_menu_bar(&editor.menu_bar, editor.renderer, window_w)
 
 	// Minimap (if enabled)
-	if false {
+	if true {
 		render_minimap(&editor.minimap, editor, editor.renderer, window_w, window_h)
 	}
 
@@ -1094,6 +1094,11 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			mouse_y := event.button.y
 
 			pos := screen_to_logical_pos(editor, int(mouse_x), int(mouse_y))
+
+			if (handle_minimap_click(&editor.minimap, editor, mouse_x, mouse_y, window_w, window_h)) 
+			{
+				break
+			}
 
 			// Double-click to select word
 			if (now - editor.last_click_time) <= editor.double_click_ms &&
