@@ -159,7 +159,7 @@ render_minimap :: proc(minimap: ^Minimap, editor: ^Editor, renderer: ^sdl.Render
     }
 }
 
-handle_minimap_click :: proc(minimap: ^Minimap, editor: ^Editor, mouse_x, mouse_y: f32, window_w, window_h: i32) -> bool {
+handle_minimap_click :: proc(minimap: ^Minimap, editor: ^Editor, mouse_x, mouse_y: f32 , window_w, window_h: i32) -> bool {
     if !minimap.is_visible {
         return false
     }

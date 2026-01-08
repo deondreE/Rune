@@ -1024,6 +1024,9 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			editor.focus_target = .FileExplorer
 			return
 		}
+		else {
+			editor.focus_target = .Editor
+		}
 
 		if event.type == sdl.EventType.MOUSE_BUTTON_DOWN {
 			mouse_x := f32(event.button.x)
@@ -1095,7 +1098,7 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 
 			pos := screen_to_logical_pos(editor, int(mouse_x), int(mouse_y))
 
-			if (handle_minimap_click(&editor.minimap, editor, mouse_x, mouse_y, window_w, window_h)) 
+			if (!handle_minimap_click(&editor.minimap, editor, mouse_x, mouse_y, window_w, window_h)) 
 			{
 				break
 			}
