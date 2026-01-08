@@ -36,6 +36,7 @@ Editor :: struct {
 	context_menu:          Context_Menu,
 	menu_bar:              Menu_Bar,
 	status_bar:            Status_Bar,
+	terminal: Rune_Terminal,
 	selection_start:       int,
 	selection_end:         int,
 	has_selection:         bool,
@@ -310,6 +311,7 @@ init_editor :: proc(
 	editor._is_mouse_selecting = false
 	editor.focus_target = .Editor
 	editor.tab_bar = init_tab_bar(allocator)
+	editor.terminal = init_terminal()
 
 	initial_text := `Hello, Deondre!
 This is your Odin code editor.
@@ -758,7 +760,11 @@ render :: proc(editor: ^Editor) {
 	if true {
 		render_minimap(&editor.minimap, editor, editor.renderer, window_w, window_h)
 	}
-
+	
+	if true {
+		render_terminal(&editor.terminal, editor.renderer)
+	}
+	
 	sdl.RenderPresent(editor.renderer)
 }
 
