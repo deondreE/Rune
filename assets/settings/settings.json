@@ -2,5 +2,5 @@
 	"theme": "dark",
 	"font_size": 16.00000000,
 	"font": "Maple Mono",
-	"minimap": false
+	"minimap": true
 }

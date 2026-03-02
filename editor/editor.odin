@@ -33,10 +33,8 @@ Editor :: struct {
 	file_explorer:         File_Explorer,
 	theme:                 Theme,
 	search_bar:            Search_Bar,
-	context_menu:          Context_Menu,
 	menu_bar:              Menu_Bar,
 	status_bar:            Status_Bar,
-	terminal: Rune_Terminal,
 	selection_start:       int,
 	selection_end:         int,
 	has_selection:         bool,
@@ -50,8 +48,8 @@ Editor :: struct {
 	treesitter:            treesitter.Treesitter,
 	focus_target:          UI_Focus_Target,
 	lsp_client:            ^LSP_Client,
+	settings: Editor_Settings,
 	lsp_enabled:           bool,
-	tab_bar: Tab_Bar,
 }
 
 clear_selection :: proc(editor: ^Editor) {
@@ -87,7 +85,6 @@ paste_from_clipboard :: proc(editor: ^Editor) {
 	defer sdl.free(cstr)
 	text_len := 0
 
-	// TODO: Change this.
 	for cstr[text_len] != 0 {
 		text_len += 1
 	}
@@ -106,58 +103,6 @@ paste_from_clipboard :: proc(editor: ^Editor) {
 	if editor.lsp_enabled && editor.lsp_client != nil {
 		editor_notify_lsp_change(editor, editor.lsp_client)
 	}
-
-	if tab := get_active_tab(&editor.tab_bar); tab != nil {
-		mark_tab_modified(tab)
-	}
-}
-
-get_prev_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
-	if logical_byte_pos <= 0 {
-		return 0
-	}
-
-	pos := logical_byte_pos
-	current_len := current_length(gb)
-	if pos > current_len {
-		pos = current_len
-	}
-
-	for i := 1; i <= 4; i += 1 {
-		target := pos - i
-		if target < 0 {
-			break
-		}
-
-		temp_segment := get_text_segment(gb, target, 1, context.allocator)
-		if len(temp_segment) > 0 && utf8.rune_start(temp_segment[0]) {
-			return target
-		}
-	}
-	return max(0, logical_byte_pos - 1)
-}
-
-get_next_utf8_char_start_byte_offset :: proc(gb: ^Gap_Buffer, logical_byte_pos: int) -> int {
-	total_len := current_length(gb)
-	if logical_byte_pos >= total_len {
-		return total_len
-	}
-
-	temp_segment := get_text_segment(
-		gb,
-		logical_byte_pos,
-		min(4, total_len - logical_byte_pos),
-		context.allocator,
-	)
-	if len(temp_segment) == 0 {
-		return logical_byte_pos
-	}
-
-	_, size := utf8.decode_rune(transmute([]u8)temp_segment)
-	if size == 0 {
-		return logical_byte_pos + 1
-	}
-	return logical_byte_pos + size
 }
 
 update_cursor_position :: proc(editor: ^Editor) {
@@ -269,10 +214,6 @@ insert_char :: proc(editor: ^Editor, r: rune) {
 	if editor.lsp_enabled && editor.lsp_client != nil {
 		editor_notify_lsp_change(editor, editor.lsp_client)
 	}
-
-	if tab := get_active_tab(&editor.tab_bar); tab != nil {
-		mark_tab_modified(tab)
-	}
 }
 
 init_editor :: proc(
@@ -287,15 +228,16 @@ init_editor :: proc(
 	theme, _ := load_user_theme("assets/settings/theme.json", allocator)
 	editor.theme = theme
 
-	text_renderer, ok := init_text_renderer(
+	text_renderer, text_loaded := init_text_renderer(
 		"assets/fonts/MapleMono-NF-Regular.ttf",
-		16,
+		22,
 		renderer,
 		allocator,
 	)
-	if !ok {
+	if !text_loaded {
 		fmt.println("Failed to initialize text renderer")
 	}
+
 	editor.text_renderer = text_renderer
 	editor.minimap = init_minimap()
 	editor.double_click_ms = 300
@@ -310,22 +252,10 @@ init_editor :: proc(
 	editor.search_bar = init_search_bar(allocator)
 	editor._is_mouse_selecting = false
 	editor.focus_target = .Editor
-	editor.tab_bar = init_tab_bar(allocator)
-	editor.terminal = init_terminal()
 
-	initial_text := `Hello, Deondre!
-This is your Odin code editor.
-Let's make some magic happen!`
-
-	tab_idx := create_tab(&editor.tab_bar, "Untitled")
-	editor.tab_bar.active_tab_idx = tab_idx
-
-
-    if tab := get_active_tab(&editor.tab_bar); tab != nil {
-        insert_bytes(&tab.gap_buffer, transmute([]u8)initial_text, editor.allocator)
-        load_tab_state_to_editor(&editor, tab)
-    }
-
+	initial_text := `init_text :: proc() {
+		// Testing code editor
+	}`
 
 	white_surface := sdl.CreateSurface(1, 1, sdl.PixelFormat.RGBA32)
 	if white_surface == nil {
@@ -361,7 +291,6 @@ Let's make some magic happen!`
 		250,
 		allocator,
 	)
-	editor.context_menu = init_context_menu(allocator)
 	editor.menu_bar = init_menu_bar(
 		allocator,
 		"assets/fonts/MapleMono-NF-Regular.ttf",
@@ -370,6 +299,7 @@ Let's make some magic happen!`
 		&editor,
 	)
 
+	// TODO: @deondreE Find how to install "lsp" to path.
 	editor.lsp_enabled = true
 	if editor.lsp_enabled {
 		lsp, success := editor_init_lsp(&editor, "ols", "odin")
@@ -390,16 +320,14 @@ update_parse_tree :: proc(editor: ^Editor) {
 
 	fmt.println("Tree-Sitter AST (first 200 chars):")
 	if len(ast) > 200 {
-		fmt.println(ast[:200], "...")
+		fmt.println(ast, "...")
 	} else {
 		fmt.println(ast)
 	}
 }
 
 destroy_editor :: proc(editor: ^Editor) {
-	destroy_search_bar(&editor.search_bar, editor.allocator)
-	destroy_context_menu(&editor.context_menu)
-	destroy_gap_buffer(&editor.gap_buffer, editor.allocator)
+	destroy_search_bar(&editor.search_bar, editor.allocator)	
 	destroy_file_explorer(&editor.file_explorer)
 	destroy_text_renderer(&editor.text_renderer)
 	destroy_batch_renderer(&editor.batch_renderer)
@@ -408,17 +336,14 @@ destroy_editor :: proc(editor: ^Editor) {
 		sdl.DestroyTexture(editor.default_white_texture)
 	}
 
-	destroy_tab_bar(&editor.tab_bar)
-	
 	if editor.lsp_client != nil {
 		lsp_client_shutdown(editor.lsp_client)
 		free(editor.lsp_client, editor.allocator)
 	}
+	destroy_gap_buffer(&editor.gap_buffer, editor.allocator)
 
 	fmt.println("Editor destroyed.")
 }
-
-update :: proc(editor: ^Editor, dt: f64) {}
 
 render_diagnostics :: proc(editor: ^Editor) {
 	if !editor.lsp_enabled || editor.lsp_client == nil {
@@ -509,23 +434,13 @@ render :: proc(editor: ^Editor) {
 	_ = sdl.GetWindowSize(editor.window, &window_w, &window_h)
 
 	menu_offset_y := f32(editor.menu_bar.height) + 10
-	tab_bar_y := menu_offset_y
-	content_offset_y := menu_offset_y + f32(editor.tab_bar.height)
+	content_offset_y := menu_offset_y
 	file_explorer_width := editor.file_explorer.is_visible ? editor.file_explorer.width : 0
 	text_origin_x := f32(file_explorer_width)
 	editor_area_x := f32(file_explorer_width)
 	start_sel, end_sel := selection_range(editor)
 
 	begin_frame(&editor.batch_renderer)
-
-	render_tab_bar(
-		&editor.tab_bar,
-		editor.renderer,
-		&editor.text_renderer,
-		editor.allocator,
-		window_w,
-		window_h - i32(editor.status_bar.height),
-	)
 
 	render_search_bar(
 		&editor.search_bar,
@@ -569,7 +484,6 @@ render :: proc(editor: ^Editor) {
 			0,
 			editor.allocator,
 		)
-		render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
 		render_menu_bar(&editor.menu_bar, editor.renderer, window_w)
 
 		render_diagnostics(editor)
@@ -659,6 +573,7 @@ render :: proc(editor: ^Editor) {
 		editor.treesitter.lang,
 		context.temp_allocator,
 	)
+	fmt.println(tokens)
 	defer if count > 0 {
 		treesitter.ts_free_tokens(&tokens[0], count)
 	}
@@ -772,16 +687,11 @@ render :: proc(editor: ^Editor) {
 		editor.cursor_col_idx,
 		editor.allocator,
 	)
-	render_context_menu(&editor.context_menu, editor.renderer, &editor.text_renderer)
 	render_menu_bar(&editor.menu_bar, editor.renderer, window_w)
 
 	// Minimap (if enabled)
-	if true {
+	if editor.settings.minimap {
 		render_minimap(&editor.minimap, editor, editor.renderer, window_w, window_h)
-	}
-
-	if true {
-		render_terminal(&editor.terminal, editor.renderer)
 	}
 
 	render_diagnostics(editor)
@@ -918,10 +828,6 @@ handle_backspace :: proc(editor: ^Editor) {
 	if editor.lsp_enabled && editor.lsp_client != nil {
 		editor_notify_lsp_change(editor, editor.lsp_client)
 	}
-
-	if tab := get_active_tab(&editor.tab_bar); tab != nil {
-		mark_tab_modified(tab)
-	}
 }
 
 delete_char_from_string :: proc(s: string, index: int, allocator: mem.Allocator) -> string {
@@ -946,10 +852,6 @@ delete_selection :: proc(editor: ^Editor) {
 	clear_selection(editor)
 
 	update_parse_tree(editor)
-}
-
-is_word_char :: proc(c: u8) -> bool {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' // optional
 }
 
 move_cursor_word_left :: proc(editor: ^Editor) {
@@ -991,36 +893,6 @@ move_cursor_word_right :: proc(editor: ^Editor) {
 	update_cursor_position(editor)
 }
 
-screen_to_logical_pos :: proc(editor: ^Editor, x: int, y: int) -> int {
-	// Account for scroll + gutters
-	menu_offset_y := f32(editor.menu_bar.height) + 10
-	local_x := f32(x) + f32(editor.scroll_x) - 60
-	local_y := f32(y) + f32(editor.scroll_y) - menu_offset_y
-
-	lines := get_lines(&editor.gap_buffer, editor.allocator)
-	line_index := clamp(int(local_y / f32(editor.line_height)), 0, len(lines) - 1)
-	defer {
-		for line in lines {delete(line, editor.allocator)}
-		delete(lines, editor.allocator)
-	}
-
-	line_text := lines[line_index]
-	accum_width: f32 = 0
-	col_index := 0
-
-	// find which character X lands on
-	for i in 0 ..< len(line_text) {
-		t_input := string(line_text[:i + 1])
-		w := measure_text_width(&editor.text_renderer, t_input)
-		if w > local_x {
-			col_index = i
-			break
-		}
-		accum_width = w
-	}
-
-	return line_col_to_logical_pos(&editor.gap_buffer, line_index, col_index)
-}
 
 select_word_at_pos :: proc(editor: ^Editor, pos: int) {
 	data := get_text(&editor.gap_buffer, editor.allocator)
@@ -1092,18 +964,6 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 		}
 	}
 
-	if handle_tab_bar_event(&editor.tab_bar, event, window_h) {
-		if prev_tab := get_active_tab(&editor.tab_bar); prev_tab != nil {
-			load_tab_state_to_editor(editor, prev_tab)
-		}
-	
-		if new_tab := get_active_tab(&editor.tab_bar); new_tab != nil {
-			load_tab_state_to_editor(editor, new_tab)
-		}
-
-		return 
-	}
-
 	switch editor.focus_target {
 	case .FileExplorer:
 		_ = handle_file_explorer_event(&editor.file_explorer, event)
@@ -1162,11 +1022,6 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 			editor.focus_target = .Editor
 			editor.last_click_time = now
 			editor.last_click_pos = pos
-		}
-
-		if event.button.button == sdl.BUTTON_RIGHT {
-			show_context_menu(&editor.context_menu, f32(event.button.x), f32(event.button.y))
-			handle_context_menu_event(&editor.context_menu, event)
 		}
 
 	case .MOUSE_MOTION:
@@ -1245,36 +1100,6 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 				editor.selection_start = 0
 				editor.selection_end = current_length(&editor.gap_buffer)
 				editor.has_selection = true
-				return
-
-			case 'w':
-				if len(editor.tab_bar.tabs) > 0 {
-					old_idx := editor.tab_bar.active_tab_idx
-					close_tab(&editor.tab_bar, old_idx)
-					
-					// Load new active tab
-					if tab := get_active_tab(&editor.tab_bar); tab != nil {
-						load_tab_state_to_editor(editor, tab)
-					} else {
-						// No tabs left, create a new one
-						tab_idx := create_tab(&editor.tab_bar, "Untitled")
-						editor.tab_bar.active_tab_idx = tab_idx
-						if new_tab := get_active_tab(&editor.tab_bar); new_tab != nil {
-							load_tab_state_to_editor(editor, new_tab)
-						}
-					}
-				}
-				return
-			case 's':
-				if tab := get_active_tab(&editor.tab_bar); tab != nil {
-					save_editor_state_to_tab(editor, tab)
-					if len(tab.file_path) == 0 {
-						// TODO: Show save dialog
-						fmt.println("Save as... (not implemented)")
-					} else {
-						save_tab(tab)
-					}
-				}
 				return
 			case 'o':
 				// TODO: Show file picker dialog
@@ -1420,26 +1245,3 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	}
 }
 
-load_text_into_editor :: proc(editor: ^Editor, text: string) {
-	gap_buffer_clear(&editor.gap_buffer)
-
-	chunk_size := 64 * 1024 // 64 KB chunks (tune this to your use case)
-	total_len := len(text)
-	offset := 0
-
-	for offset < total_len {
-		remaining := total_len - offset
-		size := math.min(chunk_size, remaining)
-
-		chunk := text[offset:offset + size]
-		bytes := transmute([]u8)chunk
-
-		insert_bytes(&editor.gap_buffer, bytes, editor.allocator)
-
-		offset += size
-	}
-
-	editor.cursor_logical_pos = 0
-	move_gap(&editor.gap_buffer, 0)
-	update_cursor_position(editor)
-}

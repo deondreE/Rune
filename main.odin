@@ -87,7 +87,6 @@ main :: proc() {
 			}
 		}
 
-		editor.update(&editor_state, dt)
 		editor.render(&editor_state)
 	}
 
