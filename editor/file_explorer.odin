@@ -34,6 +34,9 @@ File_Explorer :: struct {
 	root_path:       string,
 	hover_index:     int, // Track which item is being hovered
 	max_depth:       int, // Maximum recursion depth
+	text_cache: map[string]^sdl.Texture, 
+	last_mouse_x: f32,
+	last_mouse_y: f32,
 }
 
 init_file_explorer :: proc(
@@ -279,26 +282,45 @@ remove_directory_contents :: proc(fe: ^File_Explorer, dir_idx: int) {
 update_file_explorer :: proc(fe: ^File_Explorer, dt: f32) {
 	// Smooth scrolling with easing
 	scroll_speed: f32 = 15.0
-	scroll_diff := fe.scroll_target - fe.scroll_offset
-
-	if abs(scroll_diff) > 0.1 {
-		fe.scroll_offset += scroll_diff * scroll_speed * dt
-	} else {
-		fe.scroll_offset = fe.scroll_target
-	}
-
+	
 	// Apply velocity-based scrolling (for trackpad inertia)
 	if abs(fe.scroll_velocity) > 0.01 {
 		fe.scroll_target += fe.scroll_velocity * dt
-		fe.scroll_velocity *= 0.92 // Friction/damping
+		fe.scroll_velocity *= 0.88 // Friction/damping
 	} else {
 		fe.scroll_velocity = 0
 	}
 
-	// Clamp scroll to valid range
 	max_scroll := f32(max(0, len(fe.entries) - fe.visible_height))
-	fe.scroll_offset = f32(clamp(int(fe.scroll_offset), 0, int(max_scroll)))
-	fe.scroll_target = f32(clamp(int(fe.scroll_target), 0, int(max_scroll)))
+	fe.scroll_target = clamp_f32(fe.scroll_target, 0, max_scroll)
+
+	diff := fe.scroll_target - fe.scroll_offset 
+	if abs(diff) > 0.1 {
+		fe.scroll_offset += diff * min(scroll_speed * dt, 1.0)
+	} else {
+		fe.scroll_offset = fe.scroll_target
+	}
+}
+
+render_scroll_bar :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer, editor: ^Editor) {
+	total := len(fe.entries) 
+	if total <= fe.visible_height do return
+
+	bar_x := fe.x + fe.width - 6
+	total_h := f32(fe.visible_height) * f32(fe.item_height)
+
+	track := sdl.FRect{ x = bar_x, y = fe.y,  w = 4, h = total_h}
+	sdl.SetRenderDrawColor(renderer, 40, 40, 40, 100)
+	sdl.RenderFillRect(renderer, &track)
+
+	ratio := f32(fe.visible_height) / f32(total)
+	thumb_h := max(total_h * ratio, 20)
+	scrolL_ratio := fe.scroll_offset / f32(max(1, total - fe.visible_height))
+	thumb_y := fe.y + scrolL_ratio * (total_h - thumb_h)
+
+	thumb := sdl.FRect { x = bar_x, y = thumb_y, w = 4, h = thumb_h }
+	sdl.SetRenderDrawColor(renderer, 120, 120, 120, 100)
+	sdl.RenderFillRect(renderer, &thumb)
 }
 
 render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer, editor: ^Editor) {
@@ -445,6 +467,7 @@ render_file_explorer :: proc(fe: ^File_Explorer, renderer: ^sdl.Renderer, editor
 	_ = sdl.RenderRect(renderer, &bg_rect)
 
 	_ = sdl.SetRenderClipRect(renderer, nil)
+	render_scroll_bar(fe, renderer, editor)
 }
 
 handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> bool {
@@ -504,7 +527,9 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> boo
 			}
 		}
 
-	case .MOUSE_MOTION:
+	case .MOUSE_MOTION: 
+		fe.last_mouse_x = f32(event.motion.x)
+		fe.last_mouse_y = f32(event.motion.y)
 		mouse_x := f32(event.motion.x)
 		mouse_y := f32(event.motion.y)
 
@@ -531,12 +556,12 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> boo
 		}
 
 	case .MOUSE_WHEEL:
-		mouse_x := f32(event.wheel.mouse_x)
-		mouse_y := f32(event.wheel.mouse_y)
+		// mouse_x := f32(event.wheel.mouse_x)
+		// mouse_y := f32(event.wheel.mouse_y)
 
 		in_bounds := point_in_rect(
-			mouse_x,
-			mouse_y,
+			fe.last_mouse_x,
+			fe.last_mouse_y,
 			fe.x,
 			fe.y,
 			fe.width,
@@ -545,11 +570,13 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> boo
 
 		if in_bounds {
 			scroll_amount: f32 = 3.0
-			fe.scroll_target = f32(clamp(
-				int(fe.scroll_target - f32(event.wheel.y) * scroll_amount),
-				0,
-				int(f32(max(0, len(fe.entries) - fe.visible_height))),
-			))
+			// fe.scroll_target = f32(clamp(
+			// 	int(fe.scroll_target - f32(event.wheel.y) * scroll_amount),
+			// 	0,
+			// 	int(f32(max(0, len(fe.entries) - fe.visible_height))),
+			// ))
+			fe.scroll_velocity -= f32(event.wheel.y) * 8.0
+			fe.scroll_velocity = clamp_f32(fe.scroll_velocity, -40.0, 40)
 		}
 	}
 

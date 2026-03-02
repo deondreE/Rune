@@ -573,7 +573,6 @@ render :: proc(editor: ^Editor) {
 		editor.treesitter.lang,
 		context.temp_allocator,
 	)
-	fmt.println(tokens)
 	defer if count > 0 {
 		treesitter.ts_free_tokens(&tokens[0], count)
 	}
@@ -697,6 +696,13 @@ render :: proc(editor: ^Editor) {
 	render_diagnostics(editor)
 
 	sdl.RenderPresent(editor.renderer)
+}
+
+
+clamp_f32 :: proc(value, min_val, max_val: f32) -> f32 {
+	if value < min_val do return min_val
+	if value > max_val do return max_val
+	return value
 }
 
 clamp :: proc(value, min_val, max_val: int) -> int {
@@ -982,6 +988,21 @@ handle_event :: proc(editor: ^Editor, event: ^sdl.Event) {
 	// --- EDITOR MOUSE & KEYBOARD HANDLING ---
 	#partial switch event.type {
 	case .MOUSE_WHEEL:
+		if editor.file_explorer.is_visible {
+			in_explorer := point_in_rect(
+				f32(editor.file_explorer.last_mouse_x),
+				f32(editor.file_explorer.last_mouse_y),
+				editor.file_explorer.x,
+				editor.file_explorer.y,
+				editor.file_explorer.width,
+				f32(editor.file_explorer.visible_height * int(editor.file_explorer.item_height))
+			)
+			if in_explorer {
+				_ = handle_file_explorer_event(&editor.file_explorer, event)
+				return
+			}
+		}
+
 		scroll_delta := int(event.wheel.y) * int(editor.line_height)
 		editor.scroll_y -= int(scroll_delta)
 
