@@ -38,15 +38,17 @@ Theme :: struct {
     minimap_bg: sdl.Color,
     minimap_text_color: sdl.Color,
     // minimap_bg: sdl.Color,
-    // ── Syntax‑token Colours ──────────────────────────────────
-    token_keyword:    sdl.Color, // e.g. "if", "struct", "return"
-    token_identifier: sdl.Color, // normal variable names
-    token_string:     sdl.Color, // quoted text
-    token_number:     sdl.Color, // numeric literals
-    token_comment:    sdl.Color, // comments
-    token_type:       sdl.Color, // type names
-    token_function:   sdl.Color, // function names / calls
-    token_operator:   sdl.Color, // +, -, =, etc.
+
+    keyword:            sdl.Color,
+    type:               sdl.Color,
+    comment:            sdl.Color,
+    string_literal:     sdl.Color,
+    identifier:         sdl.Color,
+    number:             sdl.Color,
+    function:           sdl.Color,
+    operator:           sdl.Color,
+    attribute:          sdl.Color,
+    constant:           sdl.Color,
 }
 
 // Initializes the default config. -- RGBA, u32 format. 
@@ -124,14 +126,14 @@ init_default_theme :: proc(theme_type: string) -> Theme {
         
             minimap_bg            = sdl.Color{49, 50, 68, 255}, 
             minimap_text_color = sdl.Color{88, 91, 112, 255},  
-            token_keyword    = sdl.Color{198, 160, 246, 255}, // Lavender
-            token_identifier = sdl.Color{205, 214, 244, 255}, // Text
-            token_string     = sdl.Color{249, 226, 175, 255}, // Peach
-            token_number     = sdl.Color{166, 227, 161, 255}, // Green
-            token_comment    = sdl.Color{108, 112, 134, 255}, // Overlay2 (gray)
-            token_type       = sdl.Color{137, 180, 250, 255}, // Blue
-            token_function   = sdl.Color{243, 139, 168, 255}, // Pink
-            token_operator   = sdl.Color{250, 179, 135, 255}, // Maroon / Orange
+            keyword    = sdl.Color{198, 160, 246, 255}, // Lavender
+            identifier = sdl.Color{205, 214, 244, 255}, // Text
+            string_literal     = sdl.Color{249, 226, 175, 255}, // Peach
+            number     = sdl.Color{166, 227, 161, 255}, // Green
+            comment    = sdl.Color{108, 112, 134, 255}, // Overlay2 (gray)
+            type       = sdl.Color{137, 180, 250, 255}, // Blue
+            function   = sdl.Color{243, 139, 168, 255}, // Pink
+            operator   = sdl.Color{250, 179, 135, 255}, // Maroon / Orange
         }
     }
     
@@ -147,26 +149,29 @@ hash :: proc(s: string) -> u16 {
 }
 
 // Maps the token type to an active color in the theme.
-map_to_color :: proc(kind_id: u16, theme: Theme) -> sdl.Color {
-    switch kind_id {
-    case hash("keyword"):
-        return theme.token_keyword
-    case hash("identifier"):
-        return theme.token_identifier
-    case hash("string"):
-        return theme.token_string
-    case hash("number"):
-        return theme.token_number
-    case hash("comment"):
-        return theme.token_comment
-    case hash("type"):
-        return theme.token_type
-    case hash("function"):
-        return theme.token_function
-    case hash("operator"):
-        return theme.token_operator
+map_to_color :: proc(kind: string, theme: Theme) -> sdl.Color {
+    switch kind {
+    case "keyword", "repeat", "conditional", "keyword.control":
+        return theme.keyword
+    case "type", "type.builtin":
+        return theme.type
+    case "comment":
+        return theme.comment
+    case "string":
+        return theme.string_literal
+    case "number", "float":
+        return theme.number
+    case "function", "method", "function.call":
+        return theme.function
+    case "operator":
+        return theme.operator
+    case "constant", "boolean":
+        return theme.constant
+    case "attribute", "label":
+        return theme.attribute
+    case "variable.other.member", "property":
+        return theme.text // Or a specific color for members
     }
-    // Fallback color (normal text)
     return theme.text
 }
 

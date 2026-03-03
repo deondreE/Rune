@@ -410,6 +410,8 @@ render_text :: proc(
 	allocator: mem.Allocator = context.allocator,
 	color: sdl.Color,
 ) -> bool {
+	if len(text) == 0 do return true
+
 	// Use fast atlas rendering for ASCII text
 	is_ascii := true
 	for char in text {
@@ -420,11 +422,18 @@ render_text :: proc(
 	}
 
 	if is_ascii && tr.glyph_atlas.ready {
-		return render_text_fast(tr, renderer, text, x, y, color)
+		sdl.SetTextureColorMod(tr.glyph_atlas.texture, color.r, color.g, color.b)
+		sdl.SetTextureAlphaMod(tr.glyph_atlas.texture, color.a)
+		
+		success := render_text_fast(tr, renderer, text, x, y, color)
+		
+		sdl.SetTextureColorMod(tr.glyph_atlas.texture, 255, 255, 255)
+		sdl.SetTextureAlphaMod(tr.glyph_atlas.texture, 255)
+		
+		return success
 	}
 
-	// Fallback to texture rendering for non-ASCII
-	if tr.font == nil || len(text) == 0 {
+	if tr.font == nil {
 		return false
 	}
 
@@ -442,6 +451,8 @@ render_text :: proc(
 		return false
 	}
 	defer sdl.DestroyTexture(texture)
+
+	sdl.SetTextureAlphaMod(texture, color.a)
 
 	w, h: f32
 	if !sdl.GetTextureSize(texture, &w, &h) {

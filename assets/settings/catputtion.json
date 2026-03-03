@@ -131,52 +131,64 @@
 		112,
 		255
 	],
-	"token_keyword": [
+	"keyword": [
 		198,
 		160,
 		246,
 		255
 	],
-	"token_identifier": [
-		205,
-		214,
-		244,
-		255
-	],
-	"token_string": [
-		249,
-		226,
-		175,
-		255
-	],
-	"token_number": [
-		166,
-		227,
-		161,
-		255
-	],
-	"token_comment": [
-		108,
-		112,
-		134,
-		255
-	],
-	"token_type": [
+	"type": [
 		137,
 		180,
 		250,
 		255
 	],
-	"token_function": [
+	"comment": [
+		108,
+		112,
+		134,
+		255
+	],
+	"string_literal": [
+		249,
+		226,
+		175,
+		255
+	],
+	"identifier": [
+		205,
+		214,
+		244,
+		255
+	],
+	"number": [
+		166,
+		227,
+		161,
+		255
+	],
+	"function": [
 		243,
 		139,
 		168,
 		255
 	],
-	"token_operator": [
+	"operator": [
 		250,
 		179,
 		135,
 		255
+	],
+	"attribute": [
+		0,
+		0,
+		0,
+		0
+	],
+	"constant": [
+		0,
+		0,
+		0,
+		0
 	]
 }

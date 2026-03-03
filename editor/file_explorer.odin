@@ -534,8 +534,8 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> boo
 		mouse_y := f32(event.motion.y)
 
 		in_bounds := point_in_rect(
-			mouse_x,
-			mouse_y,
+			fe.last_mouse_x,
+			fe.last_mouse_y,
 			fe.x,
 			fe.y,
 			fe.width,
@@ -543,7 +543,7 @@ handle_file_explorer_event :: proc(fe: ^File_Explorer, event: ^sdl.Event) -> boo
 		)
 
 		if in_bounds {
-			relative_y := mouse_y - fe.y
+			relative_y := fe.last_mouse_y - fe.y
 			hover_idx := int(fe.scroll_offset + (relative_y / f32(fe.item_height)))
 
 			if hover_idx >= 0 && hover_idx < len(fe.entries) {
