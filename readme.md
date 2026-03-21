@@ -4,22 +4,16 @@
   <img src="/assets/icon/icon.png" width="100" height="100">
 </p>
 
-Bringing speed back to modern editors. Rune is simple and effective at any task you throw at it.
+Bringing speed back to modern editors. Rune is simple and effective at any task you throw at it. Grab and go, no configuration needed.
 
 ## Developement
 
-Speed is the number one priority as well as keeping the bundle size pretty small, eventually we will stick to native rendering methods per platform, but for now we are stuck on SDL3.
-
-## Install steps
-
-MacOS
-
-`brew install odin SDL3 SDL3_ttf SDL3_image`
-
-build
-
-`odin run .`
+- AI Contributions are welcome for UI Code only, but must be iterated on.
+- The editor is an editor, don't make it anything else.
 
 > Rune is pre-Alpha software use at your own risk.
 
-Rune will run the [LSP Protocol](https://microsoft.github.io/language-server-protocol/).
+### AI Integration Policy
+
+AI agents and all will be integrated in the project, but they will run locally only! This allows for people to make more intentional decisions about the intention behind using AI Models.
+It also limits the active runtime to the users machine making the process `use-at-your-own-risk` style.
