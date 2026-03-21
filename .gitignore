@@ -3,6 +3,7 @@ Rune.dSYM
 *.pdb
 *.rdi
 *.exe
+.DS_STORE
 
 *.idea
 *target
