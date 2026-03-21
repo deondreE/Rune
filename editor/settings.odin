@@ -1,7 +1,6 @@
 package editor
 
 import "core:encoding/json"
-import ini "core:encoding/ini"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
