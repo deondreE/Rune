@@ -2,7 +2,6 @@ package editor
 
 import "core:fmt"
 import "core:mem"
-import "core:slice"
 import "core:strings"
 import "core:unicode/utf8"
 
@@ -20,6 +19,13 @@ Gap_Buffer :: struct {
 	lines_dirty: bool,
 }
 
+@(private = "file")
+_ensure_lines :: #force_inline proc(gb: ^Gap_Buffer) {
+	if gb.lines_dirty {
+		rebuild_line_starts(gb)
+	}
+}
+
 // returns the current size of the gap;
 gap_size :: proc(gb: ^Gap_Buffer) -> int {
 	return gb.gap_end - gb.gap_start
@@ -28,6 +34,27 @@ gap_size :: proc(gb: ^Gap_Buffer) -> int {
 // the current number of
 current_length :: proc(gb: ^Gap_Buffer) -> int {
 	return gb.capacity - gap_size(gb)
+}
+
+/// Read byte at logical position directly from the buffer.
+/// No Allocation.
+char_at :: #force_inline proc(gb: ^Gap_Buffer, logical_position: int) -> u8 {
+	if logical_pos < gb.gap_start {
+		return gb.buffer[logical_pos]
+	}
+	return gb.buffer[logical_pos + gap_size(gb)]
+}
+
+// Map logical position -> physical buffer index.
+@(private = "file")
+logical_to_physical :: #force_inline proc(
+	gb: ^Gap_Buffer,
+	logical_pos: int,
+) -> int {
+	if logical_pos < gb.gap_start {
+		return logical_pos
+	}
+	return logical_pos + gap_size(gb)
 }
 
 init_gap_buffer :: proc(allocator: mem.Allocator = context.allocator) -> Gap_Buffer {
@@ -69,7 +96,7 @@ ensure_gap_size :: proc(
 	grow_needed := required_size - gap_size(gb)
 
 	for new_capacity < gb.capacity + grow_needed {
-		new_capacity = cast(int)(cast(f64)new_capacity * GAP_GROW_FACTOR)
+		new_capacity = int(f64(new_capacity) * GAP_GROW_FACTOR)
 	}
 
 	new_buffer := make([]u8, new_capacity, allocator)
@@ -83,42 +110,25 @@ ensure_gap_size :: proc(
 	gb.buffer = new_buffer
 	gb.gap_end = new_gap_end
 	gb.capacity = new_capacity
-
-	// fmt.println(
-	// 	"Gap buffer resized to",
-	// 	gb.capacity,
-	// 	"bytes. Gap start:",
-	// 	gb.gap_start,
-	// 	"gap end:",
-	// 	gb.gap_end,
-	// )
 }
 
 // move_gap move the gap_start `new_pos`.
 move_gap :: proc(gb: ^Gap_Buffer, new_logical_pos: int) {
-	pos := new_logical_pos
-	// set to valid range
-	if pos < 0 {
-		pos = 0
-	}
-	if pos > current_length(gb) {
-		pos = current_length(gb)
-	}
-	if pos == gb.gap_start {
-		return // Gap is already at the disired pos.
-	}
+	pos := clamp(new_logical_pos, 0, current_length(gb))
 
-	// determine the direction of movement
-	if new_logical_pos < gb.gap_start {
-		byes_to_move := gb.gap_start - pos
-		copy(gb.buffer[gb.gap_end - byes_to_move:], gb.buffer[pos:gb.gap_start])
+	if pos < gb.gap_start {
+		n := gb.gap_start - pos
+		copy(gb.buffer[gb.gap_end - n:gb.gap_end], gb.buffer(pos:gb.gap_start))
 		gb.gap_start = pos
-		gb.gap_end -= byes_to_move
+		gb.gap_end  -= n
 	} else {
-		byes_to_move := pos - gb.gap_start
-		copy(gb.buffer[gb.gap_start:pos], gb.buffer[gb.gap_end:gb.gap_end + byes_to_move])
+		n := pos - gb.start
+		copy(
+			gb.buffer[gb.start:gb.gap_start+n],
+			gb.buffer[gb.start:gb.gap_end+n]
+		)
 		gb.gap_start = pos
-		gb.gap_end += byes_to_move
+		gb.gap_end += n
 	}
 }
 
@@ -167,61 +177,31 @@ delete_bytes_range :: proc(gb: ^Gap_Buffer, start: int, count: int) {
 		return
 	}
 
-	end := start + count
-	if end > total_len {
-		end = total_len
-	}
+	end := min(start + count, total_len)
 	actual_count := end - start
 	if actual_count <= 0 {
 		return
 	}
 
 	move_gap(gb, start)
-
-	bytes_after_gap := gb.capacity - gb.gap_end
-	to_delete := actual_count
-	if to_delete > bytes_after_gap {
-		to_delete = bytes_after_gap
-	}
-
-	gb.gap_end += to_delete
-
-	new_lines := make([dynamic]int, gb.allocator)
-	for line_start in gb.line_starts {
-		if line_start >= start && line_start < end {
-			continue
-		}
-		append(&new_lines, line_start)
-	}
-	delete(gb.line_starts)
-	gb.line_starts = new_lines
+	gb.gap_end += min(actual_count, gb.capacity - gb.gap_end)
+	gb.dirty = true
 }
 
 delete_bytes_left :: proc(gb: ^Gap_Buffer, count: int) {
 	if count <= 0 || gb.gap_start == 0 {
 		return
 	}
-
-	bytes_to_delete := count
-	if gb.gap_start < bytes_to_delete {
-		bytes_to_delete = gb.gap_start // Don't delete beyond start of buffer
-	}
-
-	gb.gap_start -= bytes_to_delete
+	gb.gap_start -= min(count, gb.gap_start)
+	gb.lines_dirty = true
 }
 
 delete_bytes_right :: proc(gb: ^Gap_Buffer, count: int) {
 	if count <= 0 || gb.gap_end == gb.capacity {
 		return
 	}
-
-	bytes_remaining_after_gap := gb.capacity - gb.gap_end
-	byes_to_delete := count
-	if bytes_remaining_after_gap < byes_to_delete {
-		byes_to_delete = bytes_remaining_after_gap // Don't delete beyond the end of buffer
-	}
-
-	gb.gap_end += byes_to_delete
+	gb.gap_start -= min(count, gb.gap_start)
+	gb.lines_dirty = true
 }
 
 get_text :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator) -> string {
@@ -236,27 +216,71 @@ get_text :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator) 
 	return string(res)
 }
 
+get_text_segment :: proc (
+	gb: ^Gap_Buffer,
+	logical_start_param: int,
+	logical_length_param: int,
+	allocator: mem.Allocator = context.allocator,
+) -> string {
+	total_len := current_length(gb)
+	start := clamp(logical_start_param, 0, total_len)
+	logical_end := clamp(start + logical_length_param, start, total_len)
+	segment_len := logical_end - start
+	if segment_len <= 0 {
+		return ""
+	}
+
+	result := make([]u8, segment_len, allocator)
+
+	// Entirely before the gap
+	if logical_end <= gb.gap_start {
+		copy(result, gb.buffer[start:logical_end])
+	} else if start >= gb.gap_start {
+		// Entirely after the gap
+		phys_start := gb.gap_end + (start - gb.gap_start)
+		copy(result, gb.buffer[phys_start:phys_start + segement_len])
+	} else {
+		// Spans the gap
+		before := gb.gap_start - start
+		copy(result[0:before], gb.buffer[start:gb.gap_start])
+		after := logical_end - gb.gap_start
+		copy(result[before:], gb.buffer[gb.gap_end:gb.gap_end + after])
+	}
+
+	return string(result)
+}
+
 rebuild_line_starts :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator) {
-	delete(gb.line_starts)
-	new_lines := make([dynamic]int, allocator)
+	clear(&gb.line_starts)
 	append(&new_lines, 0)
 
-	text := get_text(gb, allocator)
-	defer delete(text, allocator)
-
-	for i in 0 ..< len(text) {
-		if text[i] == '\n' {
-			append(&new_lines, i + 1)
+	total := current_length(gb)
+	// Scan bytes before the gap
+	for i in 0..< min(gb.gap_start, total) {
+		if gb.buffer[i] == '\n' {
+			logical := i + 1
+			if logical < total {
+				append(&gb.line_starts, logical)
+			}
 		}
 	}
-	gb.line_starts = new_lines
-	gb.lines_dirty = false
+
+	// Scan bytes after the gap
+	after_len := gb.capacity - gb.gap_end
+	for i in 0..< after_len {
+		if gb.buffer[gb.gap_end + i] == '\n' {
+			logical := gb.gap_start + i + 1
+			if logical < total {
+				append(&gb.line_starts, logical)
+			}
+		}
+	}
+
+	gb.lines_dirty = true
 }
 
 get_line_count :: proc(gb: ^Gap_Buffer) -> int {
-	if gb.lines_dirty {
-		rebuild_line_starts(gb, gb.allocator)
-	}
+	_ensure_lines(gb)
 	return len(gb.line_starts)
 }
 
@@ -265,6 +289,7 @@ get_line :: proc(
 	line_num: int,
 	allocator: mem.Allocator = context.allocator,
 ) -> string {
+	_ensure_lines(gb)
 	if line_num < 0 || line_num >= len(gb.line_starts) {
 		return ""
 	}
@@ -287,48 +312,50 @@ get_line :: proc(
 }
 
 get_line_number :: proc(gb: ^Gap_Buffer, pos: int) -> int {
-	if gb.lines_dirty {
-		rebuild_line_starts(gb, gb.allocator)
-	}
-	for i := len(gb.line_starts) - 1; i >= 0; i -= 1 {
-		if pos >= gb.line_starts[i] {
-			return i
+	_ensure_lines(gb)
+
+	lo, hi := 0, len(gb.line_starts) - 1
+	result := 0
+	for lo <= hi {
+		mid := lo + (hi - lo) / 2
+		if gb.line_starts[mid] <= pos {
+			result = mid
+			lo = mid + 1
+		} else {
+			hi = mid - 1
 		}
 	}
-	return 0
+	return result
+}
+
+// returns the byte length of a given line (excluding newlines)
+get_line_length :: proc(gb: ^Gap_Buffer, line_num: int) -> int {
+	_ensure_lines(gb)
+	if line_num < 0 || line_num >= len(gb.line_starts) {
+		return 0
+	}
+	start := gb.line_starts[line_num]
+	end: int
+	if line_num + 1 < len(gb.line_starts) {
+		end = gb.line_starts[line_num + 1] - 1
+	} else {
+		end = current_length(gb)
+	}
+	return max(end - start, 0)
 }
 
 get_lines :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator) -> []string {
-	text := get_text(gb, allocator)
-	defer delete(text, allocator)
+	_ensure_text(gb)
 
-	if len(text) == 0 {
+	count := len(gb.line_starts)
+	if count == 0 {
 		return {}
 	}
-
-	lines := make([dynamic]string, allocator)
-	tab_replacement := strings.repeat(" ", gb.tab_size, allocator)
-	proccessed_text, alloc := strings.replace(text, "\t", tab_replacement, -1, allocator)
-	if alloc {
-		defer delete(proccessed_text, allocator)
+	lines := make([]string, count, allocator)
+	for i in 0..< count {
+		lines[i] = get_line(gb, i, allocator)
 	}
-
-	line_start := 0
-	for i in 0 ..< len(proccessed_text) {
-		char := rune(proccessed_text[i])
-		if char == '\n' {
-			line := proccessed_text[line_start:i]
-			append(&lines, strings.clone(line, allocator))
-			line_start = i + 1
-		}
-	}
-	// Add the last line if it doesn't end with newline
-	if line_start < len(proccessed_text) {
-		line := proccessed_text[line_start:]
-		append(&lines, strings.clone(line, allocator))
-	}
-
-	return lines[:]
+	return lines
 }
 
 get_text_segment :: proc(
@@ -384,52 +411,37 @@ gap_buffer_clear :: proc(gb: ^Gap_Buffer) {
 }
 
 line_col_to_logical_pos :: proc(gb: ^Gap_Buffer, target_line: int, target_col: int) -> int {
-	text := get_text(gb)
-	defer delete(text)
+	_ensure_lines(gb)
 
-	current_line := 0
-	current_col := 0
+	line := clamp(target_line, 0, len(gb.line_starts) - 1)
+	line_start := gb.line_starts[line]
 
-	for char, i in text {
-		if current_line == target_line && current_col == target_col {
-			return i
-		}
-
-		if char == '\n' {
-			if current_line == target_line {
-				return i // End of requested line
-			}
-			current_line += 1
-			current_col = 0
-		} else {
-			current_col += 1
-		}
+	line_end: int
+	if line + 1 < len(gb.line_starts) {
+		line_end = gb.line_starts[line + 1] - 1
+	} else {
+		line_end = current_length(gb)
 	}
 
-	return len(text) // End of buffer
+	line_len := line_end - line_start
+	col := clamp(target_col, 0, line_len)
+	return line_start + col
 }
 
 logical_pos_to_line_col :: proc(gb: ^Gap_Buffer, pos: int) -> (line: int, col: int) {
-	text := get_text(gb)
-	defer delete(text)
+	_ensure_lines(gb)
+	clamped := clamp(pos, 0, current_length(gb))
+	line = get_line_number(gb, clamped)
+	col = clamped - gb.line_starts[line]
+	return
+}
 
-	current_line := 0
-	current_col := 0
-
-	for char, i in text {
-		if i == pos {
-			return current_line, current_col
-		}
-
-		if char == '\n' {
-			current_line += 1
-			current_col = 0
-		} else {
-			current_col += 1
-		}
-	}
-
-	return current_line, current_col
+gap_buffer_clear :: proc(gb: ^Gap_Buffer) {
+	gb.gap_start = 0
+	gb.gap_end = 0
+	clear(&gb.line_starts)
+	append(&gb.line_starts, 0)
+	gb.lines_empty = 0
 }
 
 debug_print_buffer :: proc(gb: ^Gap_Buffer) {
@@ -440,23 +452,18 @@ debug_print_buffer :: proc(gb: ^Gap_Buffer) {
 	fmt.printf("  Gap Size: %v\n", gap_size(gb))
 	fmt.printf("  Current Length (text): %v\n", current_length(gb))
 
-	fmt.printf("  Buffer (Hex): [")
-	for i := 0; i < len(gb.buffer); i += 1 {
-		fmt.printf("%02x ", gb.buffer[i])
-	}
-	fmt.printf("]\n")
-
-	// Printable representation
 	fmt.printf("  Buffer (ASCII/Text): \"")
-	for i := 0; i < len(gb.buffer); i += 1 {
+	for i in 0 ..< len(gb.buffer) {
 		if i >= gb.gap_start && i < gb.gap_end {
-			fmt.printf("_") // Represent gap with underscores
-		} else if gb.buffer[i] >= 32 && gb.buffer[i] <= 126 { 	// Printable ASCII
+			fmt.printf("_")
+		} else if gb.buffer[i] >= 32 && gb.buffer[i] <= 126 {
 			fmt.printf("%c", gb.buffer[i])
 		} else {
-			fmt.printf(".") // Non-printable characters
+			fmt.printf(".")
 		}
 	}
 	fmt.printf("\"\n")
-	fmt.printf("  Full Text: \"%s\"\n", get_text(gb))
+	text := get_text(gb)
+	defer delete(text)
+	fmt.printf("  Full Text: \"%s\"\n", text)
 }
