@@ -36,7 +36,7 @@ current_length :: proc(gb: ^Gap_Buffer) -> int {
 
 /// Read byte at logical position directly from the buffer.
 /// No Allocation.
-char_at :: #force_inline proc(gb: ^Gap_Buffer, logical_position: int) -> u8 {
+char_at :: #force_inline proc(gb: ^Gap_Buffer, logical_pos: int) -> u8 {
 	if logical_pos < gb.gap_start {
 		return gb.buffer[logical_pos]
 	}
@@ -209,40 +209,6 @@ get_text :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator) 
 	return string(res)
 }
 
-get_text_segment :: proc(
-	gb: ^Gap_Buffer,
-	logical_start_param: int,
-	logical_length_param: int,
-	allocator: mem.Allocator = context.allocator,
-) -> string {
-	total_len := current_length(gb)
-	start := clamp(logical_start_param, 0, total_len)
-	logical_end := clamp(start + logical_length_param, start, total_len)
-	segment_len := logical_end - start
-	if segment_len <= 0 {
-		return ""
-	}
-
-	result := make([]u8, segment_len, allocator)
-
-	// Entirely before the gap
-	if logical_end <= gb.gap_start {
-		copy(result, gb.buffer[start:logical_end])
-	} else if start >= gb.gap_start {
-		// Entirely after the gap
-		phys_start := gb.gap_end + (start - gb.gap_start)
-		copy(result, gb.buffer[phys_start:phys_start + segment_len])
-	} else {
-		// Spans the gap
-		before := gb.gap_start - start
-		copy(result[0:before], gb.buffer[start:gb.gap_start])
-		after := logical_end - gb.gap_start
-		copy(result[before:], gb.buffer[gb.gap_end:gb.gap_end + after])
-	}
-
-	return string(result)
-}
-
 rebuild_line_starts :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator) {
 	clear(&gb.line_starts)
 	append(&gb.line_starts, 0)
@@ -395,14 +361,6 @@ get_text_segment :: proc(
 	return string(result)
 }
 
-gap_buffer_clear :: proc(gb: ^Gap_Buffer) {
-	gb.gap_start = 0
-	gb.gap_end = gb.capacity
-	clear(&gb.line_starts)
-	append(&gb.line_starts, 0)
-	gb.lines_dirty = false
-}
-
 line_col_to_logical_pos :: proc(gb: ^Gap_Buffer, target_line: int, target_col: int) -> int {
 	_ensure_lines(gb)
 
@@ -434,7 +392,7 @@ gap_buffer_clear :: proc(gb: ^Gap_Buffer) {
 	gb.gap_end = 0
 	clear(&gb.line_starts)
 	append(&gb.line_starts, 0)
-	gb.lines_empty = 0
+	gb.lines_dirty = true
 }
 
 debug_print_buffer :: proc(gb: ^Gap_Buffer) {

@@ -44,7 +44,7 @@ Render_Context :: struct {
 Immediate_Fn :: #type proc(cmd: vk.CommandBuffer, userdata: rawptr)
 
 vk_check :: proc(result: vk.Result, loc := #caller_location) {
-	if result != .SUCESSS {
+	if result != .SUCCESS {
 		fmt.panicf("Vulkan error: %v at %v", result, loc)
 	}
 }
@@ -58,7 +58,13 @@ init_vulkan :: proc(
 ) {
 	ctx.allocator = allocator
 
-	vk.load_proc_addresses_global(glfw.GetInstanceProcAddress)
+	// 1. Global Load
+	get_proc := glfw.GetInstanceProcAddress(nil, "vkGetInstanceProcAddr")
+	if get_proc == nil {
+		fmt.eprintln("Failed to find vkGetInstanceProcAddr")
+		return ctx, false
+	}
+	vk.load_proc_addresses_global(rawptr(get_proc))
 
 	glfw_extensions := glfw.GetRequiredInstanceExtensions()
 
@@ -71,11 +77,14 @@ init_vulkan :: proc(
 		apiVersion         = vk.API_VERSION_1_2,
 	}
 
+	layers := [?]cstring{"VK_LAYER_KHRONOS_validation"}
 	instance_info := vk.InstanceCreateInfo {
 		sType                   = .INSTANCE_CREATE_INFO,
 		pApplicationInfo        = &app_info,
 		enabledExtensionCount   = cast(u32)len(glfw_extensions),
 		ppEnabledExtensionNames = raw_data(glfw_extensions),
+		enabledLayerCount       = len(layers),
+		ppEnabledLayerNames     = &layers[0],
 	}
 
 	if vk.CreateInstance(&instance_info, nil, &ctx.instance) != .SUCCESS {
@@ -83,21 +92,19 @@ init_vulkan :: proc(
 		return ctx, false
 	}
 
+	// 2. Instance Load (Crucial: This loads Surface and Physical Device procs)
 	vk.load_proc_addresses_instance(ctx.instance)
 
-	// --- Surface ---
 	if glfw.CreateWindowSurface(ctx.instance, window, nil, &ctx.surface) != .SUCCESS {
 		fmt.eprintln("Failed to create window surface")
 		return ctx, false
 	}
 
-	// --- Physical device ---
 	if !pick_physical_device(&ctx) {
 		fmt.eprintln("Failed to find suitable GPU")
 		return ctx, false
 	}
 
-	// --- Logical device ---
 	if !create_logical_device(&ctx) {
 		fmt.eprintln("Failed to create logical device")
 		return ctx, false
@@ -105,8 +112,11 @@ init_vulkan :: proc(
 
 	vk.load_proc_addresses_device(ctx.device)
 
-	// --- Swapchain ---
 	w, h := glfw.GetFramebufferSize(window)
+	if w == 0 || h == 0 {
+		fmt.eprintln("Window size is 0, cannot initialize swapchain")
+		return ctx, false
+	}
 	ctx.viewport_size = {f32(w), f32(h)}
 
 	if !create_swapchain(&ctx, u32(w), u32(h)) {
@@ -114,25 +124,21 @@ init_vulkan :: proc(
 		return ctx, false
 	}
 
-	// --- Render pass ---
 	if !create_render_pass(&ctx) {
 		fmt.eprintln("Failed to create render pass")
 		return ctx, false
 	}
 
-	// --- Framebuffers ---
 	if !create_framebuffers(&ctx) {
 		fmt.eprintln("Failed to create framebuffers")
 		return ctx, false
 	}
 
-	// --- Command pool & buffers ---
 	if !create_command_resources(&ctx) {
 		fmt.eprintln("Failed to create command resources")
 		return ctx, false
 	}
 
-	// --- Sync objects ---
 	if !create_sync_objects(&ctx) {
 		fmt.eprintln("Failed to create sync objects")
 		return ctx, false
@@ -171,13 +177,12 @@ destroy_vulkan :: proc(ctx: ^Render_Context) {
 	vk.DestroyInstance(ctx.instance, nil)
 }
 
-pick_physical_device :: proc(ctx: ^Vulkan_Context) {
+pick_physical_device :: proc(ctx: ^Render_Context) -> bool {
 	count: u32
 	vk.EnumeratePhysicalDevices(ctx.instance, &count, nil)
 	assert(count > 0, "No Vulkan-capable GPU found")
 
 	devices := make([]vk.PhysicalDevice, count, ctx.allocator)
-	defer delete(devices, ctx.allocator)
 	vk.EnumeratePhysicalDevices(ctx.instance, &count, raw_data(devices))
 
 	for dev in devices {
@@ -188,10 +193,11 @@ pick_physical_device :: proc(ctx: ^Vulkan_Context) {
 		ctx.physical_device = dev
 		ctx.graphics_family = gf
 		ctx.present_family = pf
-		return
+		return true
 	}
 
-	fmt.panicf("No suitable physical device found ")
+	fmt.eprintln("No suitable physical device found ")
+	return false
 }
 
 find_queue_families :: proc(
@@ -239,7 +245,7 @@ check_device_extension_support :: proc(device: vk.PhysicalDevice) -> bool {
 }
 
 @(private = "file")
-create_logical_device :: proc(ctx: ^Render_Context) {
+create_logical_device :: proc(ctx: ^Render_Context) -> bool {
 	unique_families: [2]u32
 	family_count: int
 	unique_families[0] = ctx.graphics_family
@@ -260,18 +266,21 @@ create_logical_device :: proc(ctx: ^Render_Context) {
 		}
 	}
 
-	device_extensions := [?]cstring{"VK_KHR_swapchain"}
+	device_extensions := [1]cstring{vk.KHR_SWAPCHAIN_EXTENSION_NAME}
 	features := vk.PhysicalDeviceFeatures{}
 
 	device_info := vk.DeviceCreateInfo {
-		sType                 = .DEVICE_CREATE_INFO,
-		queueCreateInfoCount  = u32(family_count),
-		pQueueCreateInfos     = &queue_infos[0],
-		enabledExtensionNames = &device_extensions[0],
-		pEnabledFeatures      = &features,
+		sType                   = .DEVICE_CREATE_INFO,
+		queueCreateInfoCount    = u32(family_count),
+		pQueueCreateInfos       = &queue_infos[0],
+		enabledExtensionCount   = 1,
+		ppEnabledExtensionNames = &device_extensions[0],
+		pEnabledFeatures        = &features,
 	}
 
-	vk_check(vk.CreateDevice(ctx.physical_device, &device_info, nil, &ctx.device))
+	if vk.CreateDevice(ctx.physical_device, &device_info, nil, &ctx.device) != .SUCCESS {
+		return false
+	}
 
 	vk.GetDeviceQueue(ctx.device, ctx.graphics_family, 0, &ctx.graphics_queue)
 	vk.GetDeviceQueue(ctx.device, ctx.present_family, 0, &ctx.present_queue)
@@ -285,8 +294,7 @@ create_swapchain :: proc(ctx: ^Render_Context, width, height: u32) -> bool {
 
 	format_count: u32
 	vk.GetPhysicalDeviceSurfaceFormatsKHR(ctx.physical_device, ctx.surface, &format_count, nil)
-	formats := make([]vk.SurfaceFormatKHR, format_count, ctx.allocator)
-	defer delete(formats, ctx.allocator)
+	formats := make([]vk.SurfaceFormatKHR, format_count, context.temp_allocator)
 	vk.GetPhysicalDeviceSurfaceFormatsKHR(
 		ctx.physical_device,
 		ctx.surface,
@@ -316,14 +324,7 @@ create_swapchain :: proc(ctx: ^Render_Context, width, height: u32) -> bool {
 		image_count = caps.maxImageCount
 	}
 
-	sharing_mode: vk.SharingMode
-	family_indices: []u32
-	if ctx.graphics_family != ctx.present_family {
-		sharing_mode = .CONCURRENT
-		family_indices = {ctx.graphics_family, ctx.present_family}
-	} else {
-		sharing_mode = .EXCLUSIVE
-	}
+	queue_family_indices := [2]u32{ctx.graphics_family, ctx.present_family}
 
 	swapchain_info := vk.SwapchainCreateInfoKHR {
 		sType                 = .SWAPCHAIN_CREATE_INFO_KHR,
@@ -334,22 +335,34 @@ create_swapchain :: proc(ctx: ^Render_Context, width, height: u32) -> bool {
 		imageExtent           = ctx.swapchain_extent,
 		imageArrayLayers      = 1,
 		imageUsage            = {.COLOR_ATTACHMENT},
-		imageSharingMode      = sharing_mode,
-		queueFamilyIndexCount = cast(u32)len(family_indices),
-		pQueueFamilyIndices   = raw_data(family_indices),
 		preTransform          = caps.currentTransform,
 		compositeAlpha        = {.OPAQUE},
 		presentMode           = .FIFO,
 		clipped               = true,
 	}
 
+	if ctx.graphics_family != ctx.present_family {
+		swapchain_info.imageSharingMode = .CONCURRENT
+		swapchain_info.queueFamilyIndexCount = 2
+		swapchain_info.pQueueFamilyIndices = &queue_family_indices[0]
+	} else {
+		swapchain_info.imageSharingMode = .EXCLUSIVE
+		swapchain_info.queueFamilyIndexCount = 0
+		swapchain_info.pQueueFamilyIndices = nil
+	}
+
 	if vk.CreateSwapchainKHR(ctx.device, &swapchain_info, nil, &ctx.swapchain) != .SUCCESS {
 		return false
 	}
 
-	// Get images
-	actual_count: u32
+	actual_count: u32 = 0
 	vk.GetSwapchainImagesKHR(ctx.device, ctx.swapchain, &actual_count, nil)
+
+	// Ensure we clean up old slices if this is a resize/recreation
+	if ctx.swapchain_images != nil {
+		delete(ctx.swapchain_images, ctx.allocator)
+	}
+
 	ctx.swapchain_images = make([]vk.Image, actual_count, ctx.allocator)
 	vk.GetSwapchainImagesKHR(
 		ctx.device,
@@ -358,7 +371,10 @@ create_swapchain :: proc(ctx: ^Render_Context, width, height: u32) -> bool {
 		raw_data(ctx.swapchain_images),
 	)
 
-	// Create image view
+	if ctx.swapchain_views != nil {
+		delete(ctx.swapchain_views, ctx.allocator)
+	}
+
 	ctx.swapchain_views = make([]vk.ImageView, actual_count, ctx.allocator)
 	for img, i in ctx.swapchain_images {
 		view_info := vk.ImageViewCreateInfo {
@@ -383,7 +399,6 @@ create_swapchain :: proc(ctx: ^Render_Context, width, height: u32) -> bool {
 	return true
 }
 
-@(private = "file")
 create_render_pass :: proc(ctx: ^Render_Context) -> bool {
 	color_attachment := vk.AttachmentDescription {
 		format         = ctx.swapchain_format.format,
@@ -469,7 +484,8 @@ create_command_resources :: proc(ctx: ^Render_Context) -> bool {
 		level              = .PRIMARY,
 		commandBufferCount = MAX_FRAMES_IN_FLIGHT,
 	}
-	return vk.AllocateCommandBuffers(ctx.device, &alloc_info, &ctx.command_buffers[0]) == .SUCCESS
+	result := vk.AllocateCommandBuffers(ctx.device, &alloc_info, &ctx.command_buffers[0])
+	return result == .SUCCESS
 }
 
 @(private = "file")
@@ -486,7 +502,7 @@ create_sync_objects :: proc(ctx: ^Render_Context) -> bool {
 		if vk.CreateSemaphore(ctx.device, &sem_info, nil, &ctx.image_available[i]) != .SUCCESS {
 			return false
 		}
-		if vk.CreateSemaphore(ctx.device, &sem_info, nil, &ctx.render_finished[i]) != .SUCESS {
+		if vk.CreateSemaphore(ctx.device, &sem_info, nil, &ctx.render_finished[i]) != .SUCCESS {
 			return false
 		}
 		if vk.CreateFence(ctx.device, &fence_info, nil, &ctx.in_flight_fences[i]) != .SUCCESS {
@@ -535,7 +551,7 @@ execute_immediate :: proc(ctx: ^Render_Context, fn: Immediate_Fn, user_data: raw
 	}
 	vk.BeginCommandBuffer(cmd, &begin_info)
 
-	fn(cmd)
+	fn(cmd, user_data)
 
 	vk.EndCommandBuffer(cmd)
 

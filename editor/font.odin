@@ -33,8 +33,8 @@ load_font :: proc(
 	font: Font_Handle,
 	ok: bool,
 ) {
-	data, read_ok := os.read_entire_file(path, allocator)
-	if !read_ok {
+	data, read_ok := os.read_entire_file_from_path(path, allocator)
+	if read_ok != nil {
 		return font, false
 	}
 

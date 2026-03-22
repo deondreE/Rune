@@ -2,7 +2,7 @@ package editor
 
 import "core:mem"
 import "core:sort"
-import vk "vendor:vulkan"
+import "core:unicode/utf8"
 
 Layer_Kind :: enum u8 {
 	Custom,
@@ -21,7 +21,7 @@ Layer_Draw_Fn :: #type proc(
 	ctx: ^Layer_Context,
 )
 
-Layer_Resize_Fn :: #type proc(layer: ^Layer)
+Layer_Resize_Fn :: #type proc(layer: ^Layer, size: [2]f32)
 
 Layer_Destroy_Fn :: #type proc(layer: ^Layer)
 
@@ -111,8 +111,8 @@ sort_layers_if_needed :: proc(c: ^Compositer) {
 		return
 	}
 
-	sort.quick_sort(c.layers[:], proc(a, b: Layer) -> bool {
-		return a.z_index < b.z_index
+	sort.quick_sort_proc(c.layers[:], proc(a, b: Layer) -> int {
+		return int(a.z_index < b.z_index)
 	})
 	c.dirty = false
 }
@@ -219,7 +219,7 @@ make_text_layer :: proc(
 				pen_x := d.padding[0] - lctx.scroll_x
 				i := 0
 				for i < len(line_str) {
-					r, size := rune(line_str), i
+					r, _, size := utf8.decode_rune_in_string(line_str[i:]), i
 					if line_str[i] >= 0x80 {
 						r, size = decode_rune_at(line_str, i)
 					}
@@ -306,7 +306,7 @@ make_selection_layer :: proc(
 						x1 = lctx.viewport[0]
 					}
 					y0 := d.padding[1] + f32(ln) * d.line_height - lctx.scroll_x
-					push_rect(br, x0, x1, y0, x1 - x0, d.line_height, d.color)
+					push_rect(br, x0, y0, x1 - x0, d.line_height, d.color)
 				}
 			}
 		},
@@ -451,6 +451,8 @@ decode_rune_at :: proc(s: string, i: int) -> (r: rune, size: int) {
 				rune(s[i + 3] & 0x3F)),
 			4
 	}
+
+	return 0xFFFD, 1
 }
 
 @(private = "file")

@@ -37,7 +37,7 @@ Glyph_Atlas :: struct {
 
 init_glyph_atlas :: proc(
 	ctx: ^Render_Context,
-	allocator: mem.Allocator = context.Allocator,
+	allocator: mem.Allocator = context.allocator,
 ) -> (
 	atlas: Glyph_Atlas,
 	ok: bool,
@@ -51,7 +51,7 @@ init_glyph_atlas :: proc(
 
 	mem.zero_slice(atlas.staging)
 
-	atlas.image, ok := create_gpu_image(ctx, ATLAS_SIZE, ATLAS_SIZE, .R8_UNORM)
+	atlas.image, ok = create_gpu_image(ctx, ATLAS_SIZE, ATLAS_SIZE, .R8_UNORM)
 	if !ok {
 		return atlas, false
 	}

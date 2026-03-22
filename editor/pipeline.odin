@@ -38,12 +38,12 @@ create_pipeline :: proc(ctx: ^Render_Context, kind: Pipeline_Kind) -> (pipe: Pip
 		frag_path = "shaders/solid.frag.spv"
 	}
 
-	vert_code, vert_ok := os.read_entire_file(vert_path, ctx.allocator)
-	if !vert_ok {return pipe, false}
+	vert_code, vert_ok := os.read_entire_file_from_path(vert_path, ctx.allocator)
+	if vert_ok != nil {return pipe, false}
 	defer delete(vert_code, ctx.allocator)
 
-	frag_code, frag_ok := os.read_entire_file(frag_path, ctx.allocator)
-	if !frag_ok {return pipe, false}
+	frag_code, frag_ok := os.read_entire_file_from_path(frag_path, ctx.allocator)
+	if frag_ok != nil {return pipe, false}
 	defer delete(frag_code, ctx.allocator)
 
 	vert_module, v_ok := create_shader_module(ctx, vert_code)
@@ -94,19 +94,6 @@ create_pipeline :: proc(ctx: ^Render_Context, kind: Pipeline_Kind) -> (pipe: Pip
 			format = .R32G32B32A32_SFLOAT,
 			offset = u32(offset_of(Text_Vertex, color)),
 		},
-	}
-
-	vertex_input := vk.PipelineVertexInputStateCreateInfo {
-		sType                           = .PIPELINE_VERTEX_INPUT_CREATE_INFO,
-		vertexBindingDescriptionCount   = 1,
-		pVertexBindingDescriptions      = &binding,
-		vertexAttributeDescriptionCount = len(attributes),
-		pVertexAttributeDescriptions    = &attributes[0],
-	}
-
-	input_assembly := vk.PipelineInputAssemblyStateCreateInfo {
-		sType    = .PIEPLINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-		topology = .TRIANGLE_LIST,
 	}
 
 	vertex_input := vk.PipelineVertexInputStateCreateInfo {

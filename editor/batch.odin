@@ -146,9 +146,13 @@ push_quad :: proc(br: ^Batch_Renderer, quad: Quad, kind: Pipeline_Kind) {
 	if len(br.draw_commands) == 0 || kind != br.current_pipeline {
 		append(
 			&br.draw_commands,
-			Draw_Command{index_offset = br.quad_count * 6, index_count = 0, pipeline_kidn = kind},
+			Draw_Command{
+				index_offset = u32(len(br.draw_commands) == 0 ? 0 : br.quad_count * 6), 
+				index_count = 0, 
+				pipeline_kind = kind,
+			},
 		)
-		br.current_pipeline = kind
+		br.current_pipeline = kind	
 	}
 
 	append(
@@ -189,30 +193,42 @@ push_rect :: proc(br: ^Batch_Renderer, x, y, w, h: f32, color: [4]f32) {
 	)
 }
 
+push_glyph :: proc(br: ^Batch_Renderer, x, y: f32, info: Glyph_Info, color: [4]f32) {
+	push_quad(
+		br,
+		Quad {
+			min = {x + info.bearing[0], y + info.bearing[1]},
+			max = {x + info.bearing[0] + info.size[0], y + info.bearing[1] + info.size[1]},
+			uv_min = info.uv_min,
+			uv_max = info.uv_max,
+			color = color,
+		},
+		.Text,
+	)
+}
+
 flush_batch :: proc(
 	br: ^Batch_Renderer,
 	ctx: ^Render_Context,
 	cmd_buf: vk.CommandBuffer,
 	atlas: ^Glyph_Atlas,
 ) {
-	if len(br.vertices) == 0 {
-		return
-	}
+	if len(br.vertices) == 0 do return
 
 	vb := &br.vertex_buffers[ctx.frame_index]
-	vert_size := int(br.quad_count) * 4 * size_of(Text_Vertex)
+	vert_size := len(br.vertices) * size_of(Text_Vertex)
 	mem.copy(vb.mapped_ptr, raw_data(br.vertices), vert_size)
 
-	vk.CmdBindIndexBuffer(cmd_buf, 0, 1, &vb.buffer, 0, .UINT32)
-
+	vk.CmdBindIndexBuffer(cmd_buf, br.index_buffer.buffer, 0, .UINT32)
+	
 	offsets := [1]vk.DeviceSize{0}
 	vk.CmdBindVertexBuffers(cmd_buf, 0, 1, &vb.buffer, &offsets[0])
 
-	screen_size := Push_Constants {
+	push := Push_Constants {
 		screen_size = ctx.viewport_size,
 	}
 
-	for &dc in br.draw_commands {
+	for dc in br.draw_commands {
 		pipe := &br.pipelines[dc.pipeline_kind]
 
 		vk.CmdBindPipeline(cmd_buf, .GRAPHICS, pipe.pipeline)
@@ -222,14 +238,15 @@ flush_batch :: proc(
 			{.VERTEX},
 			0,
 			size_of(Push_Constants),
-			&screen_size,
+			&push,
 		)
 
 		if dc.pipeline_kind == .Text {
 			ds := pipe.descriptor_sets[ctx.frame_index]
-			vk.CmdBindDescriptorSets(cmd_buf, .GRAPHICS, 0, size_of(Push_Constants), &screen_size)
+			vk.CmdBindDescriptorSets(cmd_buf, .GRAPHICS, pipe.layout, 0, 1, &ds, 0, nil)
 		}
-		vk.CmdDrawIndexed(cmd_buf, dc.index_count, 1, dc.index_count, 0, 0)
+
+		vk.CmdDrawIndexed(cmd_buf, dc.index_count, 1, dc.index_offset, 0, 0)
 	}
 }
 
