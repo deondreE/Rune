@@ -2,9 +2,7 @@ package main
 
 import "core:fmt"
 import "core:mem"
-import "core:os"
 import "core:strings"
-import "core:sys/darwin/Security"
 import "core:time"
 import editor "editor"
 import sdl "vendor:sdl3"

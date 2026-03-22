@@ -2,8 +2,6 @@ package editor
 
 import "core:fmt"
 import "core:mem"
-import "core:strings"
-import "core:unicode/utf8"
 
 GAP_BUFFER_INITIAL_CAPACITY :: 4096
 GAP_GROW_FACTOR :: 1.5
@@ -47,10 +45,7 @@ char_at :: #force_inline proc(gb: ^Gap_Buffer, logical_position: int) -> u8 {
 
 // Map logical position -> physical buffer index.
 @(private = "file")
-logical_to_physical :: #force_inline proc(
-	gb: ^Gap_Buffer,
-	logical_pos: int,
-) -> int {
+logical_to_physical :: #force_inline proc(gb: ^Gap_Buffer, logical_pos: int) -> int {
 	if logical_pos < gb.gap_start {
 		return logical_pos
 	}
@@ -118,15 +113,13 @@ move_gap :: proc(gb: ^Gap_Buffer, new_logical_pos: int) {
 
 	if pos < gb.gap_start {
 		n := gb.gap_start - pos
-		copy(gb.buffer[gb.gap_end - n:gb.gap_end], gb.buffer(pos:gb.gap_start))
+		copy(gb.buffer[gb.gap_end:gb.gap_start + n], gb.buffer[gb.gap_end:gb.gap_end + n])
+
 		gb.gap_start = pos
-		gb.gap_end  -= n
-	} else {
-		n := pos - gb.start
-		copy(
-			gb.buffer[gb.start:gb.gap_start+n],
-			gb.buffer[gb.start:gb.gap_end+n]
-		)
+		gb.gap_end -= n
+	} else if pos > gb.gap_start {
+		n := pos - gb.gap_start
+		copy(gb.buffer[gb.gap_start:gb.gap_start + n], gb.buffer[gb.gap_start:gb.gap_end + n])
 		gb.gap_start = pos
 		gb.gap_end += n
 	}
@@ -185,14 +178,14 @@ delete_bytes_range :: proc(gb: ^Gap_Buffer, start: int, count: int) {
 
 	move_gap(gb, start)
 	gb.gap_end += min(actual_count, gb.capacity - gb.gap_end)
-	gb.dirty = true
+	gb.lines_dirty = true
 }
 
 delete_bytes_left :: proc(gb: ^Gap_Buffer, count: int) {
 	if count <= 0 || gb.gap_start == 0 {
 		return
 	}
-	gb.gap_start -= min(count, gb.gap_start)
+	gb.gap_end += min(count, gb.gap_start)
 	gb.lines_dirty = true
 }
 
@@ -216,7 +209,7 @@ get_text :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator) 
 	return string(res)
 }
 
-get_text_segment :: proc (
+get_text_segment :: proc(
 	gb: ^Gap_Buffer,
 	logical_start_param: int,
 	logical_length_param: int,
@@ -238,7 +231,7 @@ get_text_segment :: proc (
 	} else if start >= gb.gap_start {
 		// Entirely after the gap
 		phys_start := gb.gap_end + (start - gb.gap_start)
-		copy(result, gb.buffer[phys_start:phys_start + segement_len])
+		copy(result, gb.buffer[phys_start:phys_start + segment_len])
 	} else {
 		// Spans the gap
 		before := gb.gap_start - start
@@ -252,11 +245,11 @@ get_text_segment :: proc (
 
 rebuild_line_starts :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator) {
 	clear(&gb.line_starts)
-	append(&new_lines, 0)
+	append(&gb.line_starts, 0)
 
 	total := current_length(gb)
 	// Scan bytes before the gap
-	for i in 0..< min(gb.gap_start, total) {
+	for i in 0 ..< min(gb.gap_start, total) {
 		if gb.buffer[i] == '\n' {
 			logical := i + 1
 			if logical < total {
@@ -267,7 +260,7 @@ rebuild_line_starts :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.
 
 	// Scan bytes after the gap
 	after_len := gb.capacity - gb.gap_end
-	for i in 0..< after_len {
+	for i in 0 ..< after_len {
 		if gb.buffer[gb.gap_end + i] == '\n' {
 			logical := gb.gap_start + i + 1
 			if logical < total {
@@ -276,7 +269,7 @@ rebuild_line_starts :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.
 		}
 	}
 
-	gb.lines_dirty = true
+	gb.lines_dirty = false
 }
 
 get_line_count :: proc(gb: ^Gap_Buffer) -> int {
@@ -345,14 +338,14 @@ get_line_length :: proc(gb: ^Gap_Buffer, line_num: int) -> int {
 }
 
 get_lines :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator) -> []string {
-	_ensure_text(gb)
+	_ensure_lines(gb)
 
 	count := len(gb.line_starts)
 	if count == 0 {
 		return {}
 	}
 	lines := make([]string, count, allocator)
-	for i in 0..< count {
+	for i in 0 ..< count {
 		lines[i] = get_line(gb, i, allocator)
 	}
 	return lines
@@ -405,9 +398,9 @@ get_text_segment :: proc(
 gap_buffer_clear :: proc(gb: ^Gap_Buffer) {
 	gb.gap_start = 0
 	gb.gap_end = gb.capacity
-	// Properly clear the dynamic array
 	clear(&gb.line_starts)
 	append(&gb.line_starts, 0)
+	gb.lines_dirty = false
 }
 
 line_col_to_logical_pos :: proc(gb: ^Gap_Buffer, target_line: int, target_col: int) -> int {

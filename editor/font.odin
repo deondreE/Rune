@@ -5,21 +5,21 @@ import "core:os"
 import stbtt "vendor:stb/truetype"
 
 Font_Handle :: struct {
-	id: u16,
-	data: []u8,
-	info: stbtt.fontinfo,
-	ascent: f32,
-	descent: f32,
-	line_gap: f32,
-	scale: f32,
+	id:         u16,
+	data:       []u8,
+	info:       stbtt.fontinfo,
+	ascent:     f32,
+	descent:    f32,
+	line_gap:   f32,
+	scale:      f32,
 	pixel_size: f32,
-	allocator: mem.Allocator,
+	allocator:  mem.Allocator,
 }
 
 Rasterized_Glyph :: struct {
-	bitmap: []u8,
-	width: int,
-	height: int,
+	bitmap:    []u8,
+	width:     int,
+	height:    int,
 	bearing_x: f32,
 	bearing_y: f32,
 	advance_x: f32,
@@ -29,7 +29,10 @@ load_font :: proc(
 	path: string,
 	pixel_size: f32,
 	allocator: mem.Allocator = context.allocator,
-) -> (font: Font_Handle, ok: bool) {
+) -> (
+	font: Font_Handle,
+	ok: bool,
+) {
 	data, read_ok := os.read_entire_file(path, allocator)
 	if !read_ok {
 		return font, false
@@ -50,7 +53,7 @@ load_font :: proc(
 	stbtt.GetFontVMetrics(&font.info, &ascent, &descent, &line_gap)
 	font.ascent = f32(ascent) * font.scale
 	font.descent = f32(descent) * font.scale
-	font.line_gap = f32(line_gap) * gont.scale
+	font.line_gap = f32(line_gap) * font.scale
 
 	return font, true
 }
@@ -65,7 +68,10 @@ destroy_font :: proc(font: ^Font_Handle) {
 rasterize_glyph :: proc(
 	font: ^Font_Handle,
 	codepoint: rune,
-) -> (glyph: Rasterized_Glyph, ok: bool) {
+) -> (
+	glyph: Rasterized_Glyph,
+	ok: bool,
+) {
 	glyph_index := stbtt.FindGlyphIndex(&font.info, codepoint)
 	if glyph_index == 0 && codepoint != 0 {
 		glyph_index = stbtt.FindGlyphIndex(&font.info, ' ')
@@ -73,8 +79,14 @@ rasterize_glyph :: proc(
 
 	w, h, off_x, off_y: i32
 	bitmap_ptr := stbtt.GetGlyphBitmap(
-		&font.info, font.scale, font.scale,
-		glyph_index, &w, &h, &off_x, &off_y,
+		&font.info,
+		font.scale,
+		font.scale,
+		glyph_index,
+		&w,
+		&h,
+		&off_x,
+		&off_y,
 	)
 
 	if bitmap_ptr == nil || w == 0 || h == 0 {
@@ -105,8 +117,6 @@ rasterize_glyph :: proc(
 }
 
 get_kerning :: proc(font: ^Font_Handle, left, right: rune) -> f32 {
-	kern := stbtt.GetCodepointKernAdvance(
-		&font.info, left, right,
-	)
+	kern := stbtt.GetCodepointKernAdvance(&font.info, left, right)
 	return f32(kern) * font.scale
 }
