@@ -215,12 +215,10 @@ rebuild_line_starts :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.
 
 	total := current_length(gb)
 	// Scan bytes before the gap
-	for i in 0 ..< min(gb.gap_start, total) {
+	for i in 0 ..< gb.gap_start {
 		if gb.buffer[i] == '\n' {
 			logical := i + 1
-			if logical < total {
-				append(&gb.line_starts, logical)
-			}
+			append(&gb.line_starts, logical)
 		}
 	}
 
@@ -229,9 +227,7 @@ rebuild_line_starts :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.
 	for i in 0 ..< after_len {
 		if gb.buffer[gb.gap_end + i] == '\n' {
 			logical := gb.gap_start + i + 1
-			if logical < total {
-				append(&gb.line_starts, logical)
-			}
+			append(&gb.line_starts, logical)
 		}
 	}
 
@@ -249,25 +245,33 @@ get_line :: proc(
 	allocator: mem.Allocator = context.allocator,
 ) -> string {
 	_ensure_lines(gb)
+	
+	if gb.line_starts == nil || len(gb.line_starts) == 0 {
+		return ""
+	}
+
 	if line_num < 0 || line_num >= len(gb.line_starts) {
 		return ""
 	}
 
 	start_pos := gb.line_starts[line_num]
+	total_len := current_length(gb)
 
-	// Find end position (either next line start or end of buffer)
-	end_pos: int
-	if line_num + 1 < len(gb.line_starts) {
-		end_pos = gb.line_starts[line_num + 1] - 1 // -1 to exclude the newline
-	} else {
-		end_pos = current_length(gb)
-	}
-
-	if end_pos <= start_pos {
+	if start_pos >= total_len && total_len > 0 {
 		return ""
 	}
 
-	return get_text_segment(gb, start_pos, end_pos - start_pos, allocator)
+	end_pos: int
+	if line_num + 1 < len(gb.line_starts) {
+		end_pos = gb.line_starts[line_num + 1] - 1 
+	} else {
+		end_pos = total_len
+	}
+	
+	length := end_pos - start_pos
+	if length <= 0 do return ""
+
+	return get_text_segment(gb, start_pos, length, allocator)
 }
 
 get_line_number :: proc(gb: ^Gap_Buffer, pos: int) -> int {
@@ -319,44 +323,36 @@ get_lines :: proc(gb: ^Gap_Buffer, allocator: mem.Allocator = context.allocator)
 
 get_text_segment :: proc(
 	gb: ^Gap_Buffer,
-	logical_start_param: int,
-	logical_length_param: int,
+	start: int,
+	length: int,
 	allocator: mem.Allocator = context.allocator,
 ) -> string {
-	start := logical_start_param // Mutable local copy
-	length := logical_length_param // Mutable local copy
-
 	total_len := current_length(gb)
-	if start < 0 {start = 0}
-	if start >= total_len {return ""}
-
-	logical_end := start + length
-	if logical_end > total_len {logical_end = total_len}
-	if logical_end <= start {return ""}
-
-	segment_len := logical_end - start
-	result := make([]u8, segment_len, allocator)
-	dest_idx := 0
-
-	// Check if the segment is entirely before the gap
-	if logical_end <= gb.gap_start {
-		copy(result, gb.buffer[start:logical_end])
+	
+	// Clamp inputs
+	start := max(0, start)
+	if start >= total_len || length <= 0 {
+		return ""
 	}
-	// Check if the segment is entirely after the gap
-	if start >= gb.gap_start { 	// This condition is adjusted: If logical_start is AT OR AFTER gap_start (logical text pos)
-		actual_buffer_start := gb.gap_end + (start - gb.gap_start)
-		actual_buffer_end := gb.gap_end + (logical_end - gb.gap_start)
-		copy(result, gb.buffer[actual_buffer_start:actual_buffer_end])
+	
+	end := min(start + length, total_len)
+	actual_len := end - start
+	
+	result := make([]u8, actual_len, allocator)
+
+	if end <= gb.gap_start {
+		copy(result, gb.buffer[start:end])
+	} else if start >= gb.gap_start {
+		phys_start := start + (gb.gap_end - gb.gap_start)
+		phys_end := end + (gb.gap_end - gb.gap_start)
+		copy(result, gb.buffer[phys_start:phys_end])
+	} else {
+		before_len := gb.gap_start - start
+		after_len := end - gb.gap_start
+		
+		copy(result[0:before_len], gb.buffer[start:gb.gap_start])
+		copy(result[before_len:], gb.buffer[gb.gap_end : gb.gap_end + after_len])
 	}
-	// Segment spans across the gap
-
-	// Copy part before gap
-	copy(result[0:gb.gap_start - start], gb.buffer[start:gb.gap_start])
-	dest_idx += (gb.gap_start - start)
-
-	// Copy part after gap
-	bytes_from_after_gap := logical_end - gb.gap_start
-	copy(result[dest_idx:], gb.buffer[gb.gap_end:gb.gap_end + bytes_from_after_gap])
 
 	return string(result)
 }

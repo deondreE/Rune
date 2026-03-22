@@ -75,7 +75,7 @@ add_layer :: proc(c: ^Compositer, layer: Layer) -> ^Layer {
 
 remove_layer :: proc(c: ^Compositer, name: string) {
 	for i in 0 ..< len(c.layers) {
-		if c.layers[i].name != "" {
+		if c.layers[i].name != name {
 			c.layers[i].on_destroy(&c.layers[i])
 		}
 		ordered_remove(&c.layers, i)

@@ -32,6 +32,12 @@ Batch_Renderer :: struct {
 	allocator:        mem.Allocator,
 }
 
+Index_Copy_Params :: struct {
+	src:  vk.Buffer,
+	dst:  vk.Buffer,
+	size: vk.DeviceSize,
+}
+
 init_batch_renderer :: proc(
 	ctx: ^Render_Context,
 	allocator: mem.Allocator = context.allocator,
@@ -82,18 +88,13 @@ init_batch_renderer :: proc(
 	}
 
 	// Copy staging → device-local index buffer
-	Copy_Params :: struct {
-		src:  vk.Buffer,
-		dst:  vk.Buffer,
-		size: vk.DeviceSize,
-	}
-	cp := Copy_Params {
+	cp := Index_Copy_Params {
 		src  = staging.buffer,
 		dst  = br.index_buffer.buffer,
 		size = index_size,
 	}
 	execute_immediate(ctx, proc(cmd: vk.CommandBuffer, user_data: rawptr) {
-			p := cast(^Copy_Params)user_data
+			p := cast(^Index_Copy_Params)user_data
 			region := vk.BufferCopy {
 				srcOffset = 0,
 				dstOffset = 0,
@@ -146,13 +147,9 @@ push_quad :: proc(br: ^Batch_Renderer, quad: Quad, kind: Pipeline_Kind) {
 	if len(br.draw_commands) == 0 || kind != br.current_pipeline {
 		append(
 			&br.draw_commands,
-			Draw_Command{
-				index_offset = u32(len(br.draw_commands) == 0 ? 0 : br.quad_count * 6), 
-				index_count = 0, 
-				pipeline_kind = kind,
-			},
+			Draw_Command{index_offset = br.quad_count * 6, index_count = 0, pipeline_kind = kind},
 		)
-		br.current_pipeline = kind	
+		br.current_pipeline = kind
 	}
 
 	append(
@@ -220,7 +217,7 @@ flush_batch :: proc(
 	mem.copy(vb.mapped_ptr, raw_data(br.vertices), vert_size)
 
 	vk.CmdBindIndexBuffer(cmd_buf, br.index_buffer.buffer, 0, .UINT32)
-	
+
 	offsets := [1]vk.DeviceSize{0}
 	vk.CmdBindVertexBuffers(cmd_buf, 0, 1, &vb.buffer, &offsets[0])
 
@@ -232,14 +229,7 @@ flush_batch :: proc(
 		pipe := &br.pipelines[dc.pipeline_kind]
 
 		vk.CmdBindPipeline(cmd_buf, .GRAPHICS, pipe.pipeline)
-		vk.CmdPushConstants(
-			cmd_buf,
-			pipe.layout,
-			{.VERTEX},
-			0,
-			size_of(Push_Constants),
-			&push,
-		)
+		vk.CmdPushConstants(cmd_buf, pipe.layout, {.VERTEX}, 0, size_of(Push_Constants), &push)
 
 		if dc.pipeline_kind == .Text {
 			ds := pipe.descriptor_sets[ctx.frame_index]
@@ -250,7 +240,7 @@ flush_batch :: proc(
 	}
 }
 
-reset_branch :: proc(br: ^Batch_Renderer) {
+reset_batch :: proc(br: ^Batch_Renderer) {
 	clear(&br.vertices)
 	clear(&br.draw_commands)
 	br.quad_count = 0

@@ -1,5 +1,6 @@
 package editor
 
+import "core:fmt"
 import "core:os"
 import vk "vendor:vulkan"
 
@@ -31,27 +32,39 @@ create_pipeline :: proc(ctx: ^Render_Context, kind: Pipeline_Kind) -> (pipe: Pip
 	vert_path, frag_path: string
 	switch kind {
 	case .Text:
-		vert_path = "shaders/text.vert.spv"
-		frag_path = "shaders/text.frag.spv"
+		vert_path = "editor/shaders/text.vert.spv"
+		frag_path = "editor/shaders/text.frag.spv"
 	case .Solid:
-		vert_path = "shaders/solid.vert.spv"
-		frag_path = "shaders/solid.frag.spv"
+		vert_path = "editor/shaders/solid.vert.spv"
+		frag_path = "editor/shaders/solid.frag.spv"
 	}
 
 	vert_code, vert_ok := os.read_entire_file_from_path(vert_path, ctx.allocator)
-	if vert_ok != nil {return pipe, false}
+	if vert_ok != nil {
+		fmt.eprintfln("Failed to load vertex shader: %s", vert_path)
+		return pipe, false
+	}
 	defer delete(vert_code, ctx.allocator)
 
 	frag_code, frag_ok := os.read_entire_file_from_path(frag_path, ctx.allocator)
-	if frag_ok != nil {return pipe, false}
+	if frag_ok != nil {
+		fmt.eprintfln("Failed to load fragment shader: %s", vert_path)
+		return pipe, false
+	}
 	defer delete(frag_code, ctx.allocator)
 
 	vert_module, v_ok := create_shader_module(ctx, vert_code)
-	if !v_ok {return pipe, false}
+	if !v_ok {
+		fmt.eprintln("Failed to create vertex shader module")
+		return pipe, false
+	}
 	defer vk.DestroyShaderModule(ctx.device, vert_module, nil)
 
 	frag_module, f_ok := create_shader_module(ctx, frag_code)
-	if !f_ok {return pipe, false}
+	if !f_ok {
+		fmt.eprintln("Failed to create fragment shader module")
+		return pipe, false
+	}
 	defer vk.DestroyShaderModule(ctx.device, frag_module, nil)
 
 	shader_stages := [2]vk.PipelineShaderStageCreateInfo {
@@ -307,10 +320,19 @@ create_shader_module :: proc(
 	module: vk.ShaderModule,
 	ok: bool,
 ) {
+	if len(code) == 0 do return {}, false
+
 	info := vk.ShaderModuleCreateInfo {
 		sType    = .SHADER_MODULE_CREATE_INFO,
 		codeSize = len(code),
 		pCode    = cast(^u32)raw_data(code),
 	}
-	return module, vk.CreateShaderModule(ctx.device, &info, nil, &module) == .SUCCESS
+
+	res := vk.CreateShaderModule(ctx.device, &info, nil, &module)
+	if res != .SUCCESS {
+		fmt.eprintln("Vulkan Error: Failed to create shader module: %v", res)
+		return {}, false
+	}
+
+	return module, true
 }

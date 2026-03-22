@@ -5,7 +5,7 @@ import "core:mem"
 import "vendor:glfw"
 import vk "vendor:vulkan"
 
-MAX_FRAMES_IN_FLIGHT :: 2
+MAX_FRAMES_IN_FLIGHT :: 3
 
 Render_Context :: struct {
 	instance:         vk.Instance,
@@ -30,12 +30,12 @@ Render_Context :: struct {
 
 	// Command pools and buffers
 	command_pool:     vk.CommandPool,
-	command_buffers:  [MAX_FRAMES_IN_FLIGHT]vk.CommandBuffer,
+	command_buffers:  []vk.CommandBuffer,
 
 	// Sync
-	image_available:  [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
-	render_finished:  [MAX_FRAMES_IN_FLIGHT]vk.Semaphore,
-	in_flight_fences: [MAX_FRAMES_IN_FLIGHT]vk.Fence,
+	image_available:  []vk.Semaphore,
+	render_finished:  []vk.Semaphore,
+	in_flight_fences: []vk.Fence,
 	frame_index:      u32,
 	viewport_size:    [2]f32,
 	allocator:        mem.Allocator,
@@ -150,11 +150,15 @@ init_vulkan :: proc(
 destroy_vulkan :: proc(ctx: ^Render_Context) {
 	vk.DeviceWaitIdle(ctx.device)
 
-	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
+	// Use the length of the slice, not a hardcoded constant
+	for i in 0 ..< len(ctx.image_available) {
 		vk.DestroySemaphore(ctx.device, ctx.image_available[i], nil)
 		vk.DestroySemaphore(ctx.device, ctx.render_finished[i], nil)
 		vk.DestroyFence(ctx.device, ctx.in_flight_fences[i], nil)
 	}
+	delete(ctx.image_available, ctx.allocator)
+	delete(ctx.render_finished, ctx.allocator)
+	delete(ctx.in_flight_fences, ctx.allocator)
 
 	vk.DestroyCommandPool(ctx.device, ctx.command_pool, nil)
 
@@ -327,18 +331,18 @@ create_swapchain :: proc(ctx: ^Render_Context, width, height: u32) -> bool {
 	queue_family_indices := [2]u32{ctx.graphics_family, ctx.present_family}
 
 	swapchain_info := vk.SwapchainCreateInfoKHR {
-		sType                 = .SWAPCHAIN_CREATE_INFO_KHR,
-		surface               = ctx.surface,
-		minImageCount         = image_count,
-		imageFormat           = ctx.swapchain_format.format,
-		imageColorSpace       = ctx.swapchain_format.colorSpace,
-		imageExtent           = ctx.swapchain_extent,
-		imageArrayLayers      = 1,
-		imageUsage            = {.COLOR_ATTACHMENT},
-		preTransform          = caps.currentTransform,
-		compositeAlpha        = {.OPAQUE},
-		presentMode           = .FIFO,
-		clipped               = true,
+		sType            = .SWAPCHAIN_CREATE_INFO_KHR,
+		surface          = ctx.surface,
+		minImageCount    = image_count,
+		imageFormat      = ctx.swapchain_format.format,
+		imageColorSpace  = ctx.swapchain_format.colorSpace,
+		imageExtent      = ctx.swapchain_extent,
+		imageArrayLayers = 1,
+		imageUsage       = {.COLOR_ATTACHMENT},
+		preTransform     = caps.currentTransform,
+		compositeAlpha   = {.OPAQUE},
+		presentMode      = .FIFO,
+		clipped          = true,
 	}
 
 	if ctx.graphics_family != ctx.present_family {
@@ -478,36 +482,35 @@ create_command_resources :: proc(ctx: ^Render_Context) -> bool {
 		return false
 	}
 
+    count := u32(len(ctx.swapchain_images))
+    ctx.command_buffers = make([]vk.CommandBuffer, count, ctx.allocator)
+    
 	alloc_info := vk.CommandBufferAllocateInfo {
 		sType              = .COMMAND_BUFFER_ALLOCATE_INFO,
 		commandPool        = ctx.command_pool,
 		level              = .PRIMARY,
-		commandBufferCount = MAX_FRAMES_IN_FLIGHT,
+		commandBufferCount = count,
 	}
-	result := vk.AllocateCommandBuffers(ctx.device, &alloc_info, &ctx.command_buffers[0])
-	return result == .SUCCESS
+	return vk.AllocateCommandBuffers(ctx.device, &alloc_info, raw_data(ctx.command_buffers)) == .SUCCESS
 }
 
 @(private = "file")
 create_sync_objects :: proc(ctx: ^Render_Context) -> bool {
-	sem_info := vk.SemaphoreCreateInfo {
-		sType = .SEMAPHORE_CREATE_INFO,
-	}
+	count := len(ctx.swapchain_images)
+	ctx.image_available = make([]vk.Semaphore, count, ctx.allocator)
+	ctx.render_finished = make([]vk.Semaphore, count, ctx.allocator)
+	ctx.in_flight_fences = make([]vk.Fence, count, ctx.allocator)
+
+	sem_info := vk.SemaphoreCreateInfo { sType = .SEMAPHORE_CREATE_INFO }
 	fence_info := vk.FenceCreateInfo {
 		sType = .FENCE_CREATE_INFO,
 		flags = {.SIGNALED},
 	}
 
-	for i in 0 ..< MAX_FRAMES_IN_FLIGHT {
-		if vk.CreateSemaphore(ctx.device, &sem_info, nil, &ctx.image_available[i]) != .SUCCESS {
-			return false
-		}
-		if vk.CreateSemaphore(ctx.device, &sem_info, nil, &ctx.render_finished[i]) != .SUCCESS {
-			return false
-		}
-		if vk.CreateFence(ctx.device, &fence_info, nil, &ctx.in_flight_fences[i]) != .SUCCESS {
-			return false
-		}
+	for i in 0 ..< count {
+		vk.CreateSemaphore(ctx.device, &sem_info, nil, &ctx.image_available[i])
+		vk.CreateSemaphore(ctx.device, &sem_info, nil, &ctx.render_finished[i])
+		vk.CreateFence(ctx.device, &fence_info, nil, &ctx.in_flight_fences[i])
 	}
 	return true
 }
