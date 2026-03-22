@@ -14,8 +14,6 @@ Editor_State :: struct {
 	buffer:         editor.Gap_Buffer,
 	compositor:     editor.Compositer,
 	layer_ctx:      editor.Layer_Context,
-
-	// Mutable layer data pointers for runtime updates (cursor pos, selections…)
 	cursor_data:    ^editor.Cursor_Layer_Data,
 	selection_data: ^editor.Selection_Layer_Data,
 }
@@ -75,7 +73,9 @@ init_editor :: proc(
 
 	line_height := state.font.ascent - state.font.descent + state.font.line_gap
 	char_width := editor.get_glyph(&state.atlas, &state.font, 'M').advance_x
-	padding := [2]f32{64, 8}
+
+	gutter_w: f32 = 56
+	text_padding := [2]f32{gutter_w + 8, 8}
 
 	editor.add_layer(c, editor.make_background_layer({0.12, 0.12, 0.14, 1.0}, allocator))
 
@@ -84,7 +84,7 @@ init_editor :: proc(
 		editor.make_selection_layer(
 			line_height,
 			char_width,
-			padding,
+			text_padding,
 			{0.20, 0.40, 0.80, 0.35},
 			allocator,
 		),
@@ -98,7 +98,7 @@ init_editor :: proc(
 			&state.font,
 			{0.92, 0.91, 0.88, 1.0},
 			line_height,
-			12,
+			text_padding,
 			allocator,
 		),
 	)
@@ -108,7 +108,7 @@ init_editor :: proc(
 		editor.make_cursor_layer(
 			line_height,
 			char_width,
-			padding,
+			text_padding,
 			{0.90, 0.85, 0.70, 1.0},
 			2,
 			allocator,
@@ -121,7 +121,7 @@ init_editor :: proc(
 		editor.make_line_number_layer(
 			&state.buffer,
 			&state.font,
-			56,
+			gutter_w,
 			line_height,
 			8,
 			{0.45, 0.45, 0.50, 1.0},
@@ -138,11 +138,7 @@ destroy_editor :: proc(state: ^Editor_State) {
 	editor.destroy_compositor(&state.compositor)
 	editor.destroy_gap_buffer(&state.buffer)
 	editor.destroy_batch_renderer(&state.render_ctx, &state.batch)
-	// editor.destroy_glyph_atlas(&state.render_ctx, &state.atlas)
-	vk.DestroySampler(state.render_ctx.device, state.atlas.image.sampler, nil)
-	vk.DestroyImageView(state.render_ctx.device, state.atlas.image.view, nil)
-	vk.DestroyImage(state.render_ctx.device, state.atlas.image.image, nil)
-	vk.FreeMemory(state.render_ctx.device, state.atlas.image.memory, nil)
+	//editor.destroy_glyph_atlas(&state.render_ctx, &state.atlas)
 	editor.destroy_font(&state.font)
 	editor.destroy_vulkan(&state.render_ctx)
 }
@@ -158,7 +154,7 @@ draw_frame :: proc(state: ^Editor_State) -> bool {
 		ctx.device,
 		ctx.swapchain,
 		max(u64),
-		ctx.image_available[ctx.frame_index],
+		ctx.image_available[fi],
 		{},
 		&image_index,
 	)
@@ -166,7 +162,7 @@ draw_frame :: proc(state: ^Editor_State) -> bool {
 
 	vk.ResetFences(ctx.device, 1, &ctx.in_flight_fences[fi])
 
-	cmd := ctx.command_buffers[fi]
+	cmd := ctx.command_buffers[image_index]
 	vk.ResetCommandBuffer(cmd, {})
 
 	vk.BeginCommandBuffer(cmd, &vk.CommandBufferBeginInfo{sType = .COMMAND_BUFFER_BEGIN_INFO})
@@ -209,29 +205,35 @@ draw_frame :: proc(state: ^Editor_State) -> bool {
 	vk.EndCommandBuffer(cmd)
 
 	wait_stage := vk.PipelineStageFlags{.COLOR_ATTACHMENT_OUTPUT}
-	submit_info := vk.SubmitInfo {
-		sType                = .SUBMIT_INFO,
-		waitSemaphoreCount   = 1,
-		pWaitSemaphores      = &ctx.image_available[ctx.frame_index],
-		pWaitDstStageMask    = &wait_stage,
-		commandBufferCount   = 1,
-		pCommandBuffers      = &ctx.command_buffers[ctx.frame_index],
-		signalSemaphoreCount = 1,
-		pSignalSemaphores    = &ctx.render_finished[ctx.frame_index],
-	}
-	vk.QueueSubmit(ctx.graphics_queue, 1, &submit_info, ctx.in_flight_fences[ctx.frame_index])
+	vk.QueueSubmit(
+		ctx.graphics_queue,
+		1,
+		&vk.SubmitInfo {
+			sType = .SUBMIT_INFO,
+			waitSemaphoreCount = 1,
+			pWaitSemaphores = &ctx.image_available[fi],
+			pWaitDstStageMask = &wait_stage,
+			commandBufferCount = 1,
+			pCommandBuffers = &cmd,
+			signalSemaphoreCount = 1,
+			pSignalSemaphores = &ctx.render_finished[fi],
+		},
+		ctx.in_flight_fences[fi],
+	)
 
-	present_info := vk.PresentInfoKHR {
-		sType              = .PRESENT_INFO_KHR,
-		waitSemaphoreCount = 1,
-		pWaitSemaphores    = &ctx.render_finished[ctx.frame_index],
-		swapchainCount     = 1,
-		pSwapchains        = &ctx.swapchain,
-		pImageIndices      = &image_index,
-	}
-	vk.QueuePresentKHR(ctx.present_queue, &present_info)
+	vk.QueuePresentKHR(
+		ctx.present_queue,
+		&vk.PresentInfoKHR {
+			sType = .PRESENT_INFO_KHR,
+			waitSemaphoreCount = 1,
+			pWaitSemaphores = &ctx.render_finished[fi],
+			swapchainCount = 1,
+			pSwapchains = &ctx.swapchain,
+			pImageIndices = &image_index,
+		},
+	)
 
-	ctx.frame_index = (fi + 1) % editor.MAX_FRAMES_IN_FLIGHT
+	ctx.frame_index = (fi + 1) % u32(len(ctx.in_flight_fences))
 	return true
 }
 
@@ -256,7 +258,6 @@ main :: proc() {
 
 	hello := "Hello, Editor!\nType something here.\n"
 	editor.insert_bytes(&state.buffer, transmute([]u8)string(hello))
-	editor.push_rect(&state.batch, 0, 0, 500, 500, {1, 1, 1, 1})
 
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()

@@ -177,7 +177,7 @@ make_text_layer :: proc(
 	font: ^Font_Handle,
 	text_color: [4]f32,
 	line_height: f32,
-	padding: f32,
+	padding: [2]f32,
 	allocator: mem.Allocator = context.allocator,
 ) -> Layer {
 	data := new(Text_Layer_Data, allocator)
