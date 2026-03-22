@@ -8,13 +8,16 @@ Rewrite the rendering backend to be platform agnostic...
 
 Problems:
 
+Layer system
+
+0 Background - Solid window background
+1 Selections - higlighted selection ranges
+2 Cursors - cursor line / caret rect
+3 Text - actual glyph quads
+4 Decorations - underlines, error_squiggles,
+5 Overlay - (line_numbers, scrollbars)
+
   - Tabs ->  
-  - UI -> XML -> HTML
-    - Not everything needs to draw every frame
-    - Save performance for text rendering.
-      - HTML -> Panel structure plus label structure.
-      - Json -> Styles for each panel.
-      - `ui/panel/file_explorer.html` -> `ui/panel/file_explorer.json`    
     - Tabs
     - Debugger
     - Terminal
