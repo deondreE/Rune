@@ -2,6 +2,7 @@
 Rune.dSYM
 *.pdb
 *.rdi
+*.spv
 *.exe
 .DS_STORE
 
