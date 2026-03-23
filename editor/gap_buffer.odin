@@ -378,6 +378,91 @@ line_col_to_logical_pos :: proc(gb: ^Gap_Buffer, target_line: int, target_col: i
 	return line_start + col
 }
 
+// Returns the visual column for a given byte column on a line, expanding tabs
+// to the next tab-stop grid position.  Every non-tab codepoint counts as 1.
+get_visual_col :: proc(
+	gb: ^Gap_Buffer,
+	line_num: int,
+	byte_col: int,
+	tab_size: int,
+	allocator: mem.Allocator = context.allocator,
+) -> int {
+	ts := max(tab_size, 1)
+	line_str := get_line(gb, line_num, allocator)
+	defer delete(line_str, allocator)
+
+	visual := 0
+	i := 0
+	for i < len(line_str) && i < byte_col {
+		b := line_str[i]
+		if b == '\t' {
+			visual = (visual / ts + 1) * ts
+			i += 1
+		} else {
+			char_size := 1
+			if b >= 0xC0 {
+				switch {
+				case b < 0xE0:
+					char_size = 2
+				case b < 0xF0:
+					char_size = 3
+				case:
+					char_size = 4
+				}
+			}
+			i += char_size
+			visual += 1
+		}
+	}
+	return visual
+}
+
+// Returns the byte column whose visual position is <= target_visual and is as
+// close to it as possible.  When target_visual falls inside a tab the cursor
+// snaps to the start of that tab (i.e. the tab's byte position is returned).
+visual_col_to_byte_col :: proc(
+	gb: ^Gap_Buffer,
+	line_num: int,
+	target_visual: int,
+	tab_size: int,
+	allocator: mem.Allocator = context.allocator,
+) -> int {
+	ts := max(tab_size, 1)
+	line_str := get_line(gb, line_num, allocator)
+	defer delete(line_str, allocator)
+
+	visual := 0
+	i := 0
+	for i < len(line_str) {
+		if visual >= target_visual {break}
+		b := line_str[i]
+		if b == '\t' {
+			next_stop := (visual / ts + 1) * ts
+			if next_stop > target_visual {
+				// target falls inside this tab – snap to its start
+				break
+			}
+			visual = next_stop
+			i += 1
+		} else {
+			char_size := 1
+			if b >= 0xC0 {
+				switch {
+				case b < 0xE0:
+					char_size = 2
+				case b < 0xF0:
+					char_size = 3
+				case:
+					char_size = 4
+				}
+			}
+			visual += 1
+			i += char_size
+		}
+	}
+	return i
+}
+
 logical_pos_to_line_col :: proc(gb: ^Gap_Buffer, pos: int) -> (line: int, col: int) {
 	_ensure_lines(gb)
 	clamped := clamp(pos, 0, current_length(gb))

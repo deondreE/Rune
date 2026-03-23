@@ -217,18 +217,17 @@ make_text_layer :: proc(
 				defer delete(line_str)
 
 				pen_x := d.padding[0] - lctx.scroll_x
+				visual_col := 0
 				i := 0
 				for i < len(line_str) {
 					r, size := utf8.decode_rune_in_string(line_str[i:])
-					if line_str[i] >= 0x80 {
-						r, size = decode_rune_at(line_str, i)
-					}
 					i += size
 
-
 					if r == '\t' {
-						space_info := get_glyph(atlas, d.font, ' ')
-						pen_x += space_info.advance_x * f32(lctx.tab_size)
+						space_w := get_glyph(atlas, d.font, ' ').advance_x
+						next_stop := (visual_col / lctx.tab_size + 1) * lctx.tab_size
+						pen_x += f32(next_stop - visual_col) * space_w
+						visual_col = next_stop
 						continue
 					}
 
@@ -237,6 +236,7 @@ make_text_layer :: proc(
 						push_glyph(br, pen_x, pen_y + d.font.ascent, info, d.text_color)
 					}
 					pen_x += info.advance_x
+					visual_col += 1
 				}
 
 				pen_y += d.line_height
@@ -316,6 +316,7 @@ make_selection_layer :: proc(
 Cursor_Layer_Data :: struct {
 	line:        int,
 	col:         int,
+	visual_col:  int, // tab-expanded column used for pixel positioning
 	color:       [4]f32,
 	width:       f32,
 	line_height: f32,
@@ -351,7 +352,7 @@ make_cursor_layer :: proc(
 			lctx: ^Layer_Context,
 		) {
 			d := cast(^Cursor_Layer_Data)layer.user_data
-			x := d.padding[0] + f32(d.col) * d.char_width - lctx.scroll_x
+			x := d.padding[0] + f32(d.visual_col) * d.char_width - lctx.scroll_x
 			y := d.padding[1] + f32(d.line) * d.line_height - lctx.scroll_y
 			push_rect(br, x, y, d.width, d.line_height, d.color)
 		},

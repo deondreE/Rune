@@ -17,6 +17,7 @@ Editor_State :: struct {
 	cursor_data:    ^editor.Cursor_Layer_Data,
 	selection_data: ^editor.Selection_Layer_Data,
 	cursor_pos:     int,
+	preferred_col:  int, // sticky visual column for up/down movement
 }
 
 init_editor :: proc(
