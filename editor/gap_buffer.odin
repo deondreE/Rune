@@ -112,14 +112,17 @@ move_gap :: proc(gb: ^Gap_Buffer, new_logical_pos: int) {
 	pos := clamp(new_logical_pos, 0, current_length(gb))
 
 	if pos < gb.gap_start {
+		// Move the n bytes just before the gap to just after the gap,
+		// shifting the gap leftward to `pos`.
 		n := gb.gap_start - pos
-		copy(gb.buffer[gb.gap_end:gb.gap_start + n], gb.buffer[gb.gap_end:gb.gap_end + n])
-
+		copy(gb.buffer[gb.gap_end - n:gb.gap_end], gb.buffer[pos:gb.gap_start])
 		gb.gap_start = pos
 		gb.gap_end -= n
 	} else if pos > gb.gap_start {
+		// Move the n bytes just after the gap to just before the gap,
+		// shifting the gap rightward to `pos`.
 		n := pos - gb.gap_start
-		copy(gb.buffer[gb.gap_start:gb.gap_start + n], gb.buffer[gb.gap_start:gb.gap_end + n])
+		copy(gb.buffer[gb.gap_start:gb.gap_start + n], gb.buffer[gb.gap_end:gb.gap_end + n])
 		gb.gap_start = pos
 		gb.gap_end += n
 	}
@@ -245,7 +248,7 @@ get_line :: proc(
 	allocator: mem.Allocator = context.allocator,
 ) -> string {
 	_ensure_lines(gb)
-	
+
 	if gb.line_starts == nil || len(gb.line_starts) == 0 {
 		return ""
 	}
@@ -263,11 +266,11 @@ get_line :: proc(
 
 	end_pos: int
 	if line_num + 1 < len(gb.line_starts) {
-		end_pos = gb.line_starts[line_num + 1] - 1 
+		end_pos = gb.line_starts[line_num + 1] - 1
 	} else {
 		end_pos = total_len
 	}
-	
+
 	length := end_pos - start_pos
 	if length <= 0 do return ""
 
@@ -328,16 +331,16 @@ get_text_segment :: proc(
 	allocator: mem.Allocator = context.allocator,
 ) -> string {
 	total_len := current_length(gb)
-	
+
 	// Clamp inputs
 	start := max(0, start)
 	if start >= total_len || length <= 0 {
 		return ""
 	}
-	
+
 	end := min(start + length, total_len)
 	actual_len := end - start
-	
+
 	result := make([]u8, actual_len, allocator)
 
 	if end <= gb.gap_start {
@@ -349,9 +352,9 @@ get_text_segment :: proc(
 	} else {
 		before_len := gb.gap_start - start
 		after_len := end - gb.gap_start
-		
+
 		copy(result[0:before_len], gb.buffer[start:gb.gap_start])
-		copy(result[before_len:], gb.buffer[gb.gap_end : gb.gap_end + after_len])
+		copy(result[before_len:], gb.buffer[gb.gap_end:gb.gap_end + after_len])
 	}
 
 	return string(result)

@@ -16,33 +16,33 @@ Editor_State :: struct {
 	layer_ctx:      editor.Layer_Context,
 	cursor_data:    ^editor.Cursor_Layer_Data,
 	selection_data: ^editor.Selection_Layer_Data,
+	cursor_pos:     int,
 }
 
 init_editor :: proc(
+	state: ^Editor_State,
 	window: glfw.WindowHandle,
 	font_path: string,
 	font_size: f32,
 	allocator: mem.Allocator = context.allocator,
-) -> (
-	state: Editor_State,
-	ok: bool,
-) {
+) -> bool {
+	ok: bool
 	state.render_ctx, ok = editor.init_vulkan(window, allocator)
 	if !ok {
 		fmt.eprintln("Failed to init Vulkan")
-		return state, false
+		return false
 	}
 
 	state.font, ok = editor.load_font(font_path, font_size, allocator)
 	if !ok {
 		fmt.eprintln("Failed to load font:", font_path)
-		return state, false
+		return false
 	}
 
 	state.atlas, ok = editor.init_glyph_atlas(&state.render_ctx, allocator)
 	if !ok {
 		fmt.eprintln("Failed to init glyph atlas")
-		return state, false
+		return false
 	}
 	editor.precache_ascii(&state.atlas, &state.font)
 	editor.flush_atlas(&state.render_ctx, &state.atlas)
@@ -50,7 +50,7 @@ init_editor :: proc(
 	state.batch, ok = editor.init_batch_renderer(&state.render_ctx, allocator)
 	if !ok {
 		fmt.eprintln("Failed to init renderer")
-		return state, false
+		return false
 	}
 
 	editor.update_descriptor_set(
@@ -130,7 +130,7 @@ init_editor :: proc(
 		),
 	)
 
-	return state, true
+	return true
 }
 
 destroy_editor :: proc(state: ^Editor_State) {
@@ -252,12 +252,20 @@ main :: proc() {
 	}
 	defer glfw.DestroyWindow(window)
 
-	state, ok := init_editor(window, "assets/fonts/ComicMono.ttf", 16)
-	if !ok {return}
+	state: Editor_State
+	if !init_editor(&state, window, "assets/fonts/ComicMono.ttf", 16) {return}
 	defer destroy_editor(&state)
 
+	// Seed some initial content and place the cursor at the end of it.
 	hello := "Hello, Editor!\nType something here.\n"
 	editor.insert_bytes(&state.buffer, transmute([]u8)string(hello))
+	state.cursor_pos = editor.current_length(&state.buffer)
+	sync_cursor(&state)
+
+	// Register input callbacks; the state pointer is retrieved inside each callback.
+	glfw.SetWindowUserPointer(window, &state)
+	glfw.SetCharCallback(window, char_callback)
+	glfw.SetKeyCallback(window, key_callback)
 
 	for !glfw.WindowShouldClose(window) {
 		glfw.PollEvents()

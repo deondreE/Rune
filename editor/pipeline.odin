@@ -32,11 +32,11 @@ create_pipeline :: proc(ctx: ^Render_Context, kind: Pipeline_Kind) -> (pipe: Pip
 	vert_path, frag_path: string
 	switch kind {
 	case .Text:
-		vert_path = "editor/shaders/text.vert.spv"
-		frag_path = "editor/shaders/text.frag.spv"
+		vert_path = "./editor/shaders/text.vert.spv"
+		frag_path = "./editor/shaders/text.frag.spv"
 	case .Solid:
-		vert_path = "editor/shaders/solid.vert.spv"
-		frag_path = "editor/shaders/solid.frag.spv"
+		vert_path = "./editor/shaders/solid.vert.spv"
+		frag_path = "./editor/shaders/solid.frag.spv"
 	}
 
 	vert_code, vert_ok := os.read_entire_file_from_path(vert_path, ctx.allocator)
